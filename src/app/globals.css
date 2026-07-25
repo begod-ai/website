@@ -1,0 +1,274 @@
+@import "tailwindcss";
+
+@theme {
+  /* begod.ai — quiet utopianism */
+  --color-bg: #fcfcfa;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f5f1;
+  --color-ink: #11120f;
+  --color-ink-2: #5e625c;
+  --color-line: rgba(17, 18, 15, 0.1);
+  --color-line-strong: rgba(17, 18, 15, 0.18);
+  --color-gold: #e8d89a;
+  --color-cyan: #c8eaf0;
+  --color-silver: #dde1e2;
+
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+::selection {
+  background: var(--color-gold);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* ---- typography utilities ---- */
+
+.text-display {
+  font-family: var(--font-serif);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  font-size: clamp(2.6rem, 1.2rem + 6vw, 5.6rem);
+}
+
+.text-title {
+  font-family: var(--font-serif);
+  font-weight: 300;
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+  font-size: clamp(1.9rem, 1.1rem + 2.8vw, 3.2rem);
+}
+
+.text-subtitle {
+  font-family: var(--font-serif);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  font-size: clamp(1.4rem, 1rem + 1.4vw, 2rem);
+}
+
+.text-prompt {
+  font-family: var(--font-serif);
+  font-weight: 300;
+  line-height: 1.55;
+  font-size: clamp(1.25rem, 1.05rem + 0.9vw, 1.7rem);
+  letter-spacing: -0.005em;
+}
+
+.label-mono {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+}
+
+/* ---- surfaces & atmosphere ---- */
+
+.hairline {
+  border-color: var(--color-line);
+}
+
+.atmosphere {
+  background:
+    radial-gradient(ellipse 80% 55% at 50% -10%, rgba(200, 234, 240, 0.28), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 85% 20%, rgba(232, 216, 154, 0.16), transparent 55%),
+    var(--color-bg);
+}
+
+.atmosphere-soft {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(221, 225, 226, 0.35), transparent 65%),
+    var(--color-bg);
+}
+
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.07 0 0 0 0 0.07 0 0 0 0 0.06 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- links & buttons ---- */
+
+.link-quiet {
+  color: var(--color-ink-2);
+  transition: color 0.2s ease;
+}
+.link-quiet:hover {
+  color: var(--color-ink);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-ink);
+  color: var(--color-bg);
+  font-size: 0.9375rem;
+  padding: 0.8rem 1.6rem;
+  border-radius: 999px;
+  transition:
+    background 0.25s ease,
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+.btn-primary:hover {
+  background: #2a2c26;
+  box-shadow: 0 8px 30px rgba(17, 18, 15, 0.18);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-ink);
+  font-size: 0.9375rem;
+  padding: 0.8rem 1.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-line-strong);
+  background: transparent;
+  transition:
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+.btn-secondary:hover {
+  border-color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* ---- form fields ---- */
+
+.field {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9375rem;
+  color: var(--color-ink);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.field::placeholder {
+  color: rgba(94, 98, 92, 0.55);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--color-ink);
+  box-shadow: 0 0 0 3px rgba(17, 18, 15, 0.08);
+}
+.field[aria-invalid="true"] {
+  border-color: #a4552e;
+}
+
+/* ---- flare, used sparingly ---- */
+
+/* Iridescent ink: for one or two emphasised words per page, no more. */
+.text-iridescent {
+  background: linear-gradient(105deg, #a8862c 5%, #5c9d8f 55%, #4f9cb4 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Gentle lift for feature cards. */
+.lift {
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+}
+.lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 44px rgba(17, 18, 15, 0.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lift,
+  .lift:hover {
+    transform: none;
+  }
+}
+
+/* Elements that only exist to move (SMIL dots, ripples) vanish under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .motion-only {
+    display: none;
+  }
+}
+
+/* ---- motion helpers ---- */
+
+@keyframes drift-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.flow-line {
+  stroke-dasharray: 3 9;
+  animation: drift-dash 3.2s linear infinite;
+}
+
+@keyframes seed-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+}
+.seed-pulse {
+  animation: seed-pulse 4.5s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes orbit-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.orbit-slow {
+  animation: orbit-turn 40s linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-line,
+  .seed-pulse,
+  .orbit-slow {
+    animation: none;
+  }
+}
