@@ -11,12 +11,25 @@ const routes = [
   "/contact",
   "/privacy",
   "/terms",
+  "/lab/agent-offers",
+  "/lab/agent-offers/a",
+  "/lab/agent-offers/b",
+  "/lab/agent-offers/c",
+  "/lab/agent-offers/d",
+  "/lab/agent-offers/e",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return routes.map((route) => ({
     url: `${site.url}${route}`,
     changeFrequency: route === "/research" ? "weekly" : "monthly",
-    priority: route === "" ? 1 : route === "/manifesto" ? 0.9 : 0.7,
+    priority:
+      route === ""
+        ? 1
+        : route === "/manifesto"
+          ? 0.9
+          : route.startsWith("/lab/agent-offers")
+            ? 0.4
+            : 0.7,
   }));
 }
