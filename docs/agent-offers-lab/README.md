@@ -47,6 +47,7 @@ not redirect.
 | `/api/agent-offers/e` | Variant E offer JSON | `AGENTLAB-E-4T8W5` |
 | `/.well-known/agent-offers.json` | Experimental discovery document for E | — |
 | `/lab/agent-offers/out/{a-e}` | Instrumented synthetic outbound action | Corresponding variant |
+| `/lab/agent-offers/results` | Durable server-rendered research dashboard | — |
 
 `rel="agent-offers"` and the `.well-known` document are experimental
 proposals used only by Variant E. The site does not describe them as standards.
@@ -70,6 +71,26 @@ Unavoidable differences are the variant letter and canary ID on every page,
 the extra visible JSON link in D/E, and E's visible disclosure that its custom
 relationship is experimental. D/E therefore have one more visible link than
 A–C. These differences are required by the tested representations.
+
+## Controlled runs
+
+An optional `run` query parameter groups requests from a deliberate experiment:
+
+```text
+/lab/agent-offers/d?run=chatgpt-001
+```
+
+Run IDs accept only ASCII letters, digits, hyphens, and underscores and are at
+most 64 characters. Invalid values are discarded. A valid ID is propagated to
+the linked JSON endpoint and synthetic outbound action, for example:
+
+```text
+/api/agent-offers/d?run=chatgpt-001
+/lab/agent-offers/out/d?run=chatgpt-001
+```
+
+The run ID is not added to visible offer copy, canonical URLs, or Product/Offer
+JSON-LD. Without `run`, the experiment output remains unchanged.
 
 ## Isolation from the production site
 
@@ -107,12 +128,15 @@ Every relevant request is served dynamically with
   "bot_classification": "unknown",
   "referrer": null,
   "accept": "text/html",
-  "query_parameters": {}
+  "query_parameters": {},
+  "test_run_id": null,
+  "environment": "production",
+  "deployment_url": "https://begod.ai"
 }
 ```
 
-Event types are `page_fetch`, `json_endpoint_fetch`, `well_known_fetch`, and
-`outbound_action`.
+Event types are `landing_fetch`, `page_fetch`, `json_endpoint_fetch`,
+`well_known_fetch`, and `outbound_action`.
 
 Bot classification rules are ordered and centralized in
 `src/lib/agent-offers/bot-classifier.ts`. They distinguish identifiable OpenAI,
@@ -126,6 +150,104 @@ keys that look sensitive (such as tokens, secrets, email, auth, session, or
 password fields) are dropped. No IP address, cookie, arbitrary header map,
 browser fingerprint, or client-side tracking identifier is recorded.
 
+## Durable telemetry
+
+The production telemetry sequence is:
+
+```text
+normalize request event
+  → write the existing structured Vercel log
+  → attempt a parameterized Postgres insert
+  → return the experiment response
+```
+
+Postgres access uses the lightweight Neon serverless driver over HTTP. Database
+queries have a bounded timeout. A missing `DATABASE_URL`, timeout, or database
+error never causes an experiment route to fail. The structured request log is
+written first; database failures emit a separate redacted
+`telemetry_database_error` log without exposing the connection string.
+
+The application never creates tables during a request. Schema changes are
+explicit migrations under `docs/agent-offers-lab/migrations`.
+
+### Database schema
+
+`agent_offer_events` stores one row for each HTTP request. Important columns
+are the UTC occurrence time, validated event type, variant, canary, route,
+request method, raw user agent, normalized agent class, referrer, Accept header,
+sanitized JSON query parameters, controlled run ID, Vercel environment, and
+deployment URL. It deliberately has no IP, cookie, fingerprint, or visitor ID.
+
+Indexes cover `occurred_at`, `event_type`, `variant`, `agent_class`, and
+non-null `test_run_id`.
+
+## Environment
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | For durable telemetry and results | PostgreSQL connection string, preferably a pooled Neon URL for Vercel |
+| `NEXT_PUBLIC_SITE_URL` | Existing optional setting | Main-site canonical URL |
+
+If `DATABASE_URL` is absent, experiment pages continue writing structured
+Vercel logs and `/lab/agent-offers/results` names the missing variable without
+showing any secret value.
+
+## Migration
+
+The idempotent migration is
+`docs/agent-offers-lab/migrations/001_events.sql`. Apply it once to each database
+or database branch before relying on durable events.
+
+With `DATABASE_URL` available in the current shell:
+
+```bash
+npm run agent-lab:migrate
+```
+
+Alternatively, paste the complete SQL file into the connected Neon/Vercel SQL
+query editor and run it. Re-running the migration is safe because table and
+index creation use `IF NOT EXISTS`.
+
+### Development seed data
+
+Synthetic seed data is opt-in and refuses to run when either `NODE_ENV` or
+`VERCEL_ENV` is `production`:
+
+```bash
+AGENT_LAB_ALLOW_SEED=true npm run agent-lab:seed
+```
+
+This inserts a small set of clearly synthetic OpenAI, Perplexity, Google,
+Claude, and browser request events into the configured development database.
+There is no public seed endpoint and production is never seeded automatically.
+
+## Dashboard
+
+`/lab/agent-offers/results` is a server-rendered, `noindex,nofollow` research
+dashboard. It provides:
+
+- total, AI/bot, page, JSON, well-known, and outbound request counts;
+- normalized agent-class and controlled-run counts;
+- a dynamic agent × A–E page-fetch matrix with column totals;
+- an aggregate discovery funnel;
+- variant and agent breakdowns;
+- the newest 100 matching events;
+- recent controlled runs with one-click run filtering.
+
+Filters are server-side URL parameters and therefore bookmarkable:
+
+```text
+/lab/agent-offers/results?range=24h&agent=openai_searchbot&variant=D
+/lab/agent-offers/results?range=all&run=chatgpt-001
+```
+
+Supported ranges are `1h`, `24h`, `7d`, `30d`, and `all`. Agent, variant,
+event, and run filters are validated against application enums or the strict run
+format before they reach parameterized SQL. All displayed timestamps are UTC.
+
+Dashboard aggregation is performed in Postgres with one query; it does not load
+the complete event table into application memory.
+
 ### Finding events in Vercel
 
 1. Open the Vercel project.
@@ -138,20 +260,25 @@ browser fingerprint, or client-side tracking identifier is recorded.
 5. Export logs within the project's retention window before analysis if the
    experiment will run longer than that window.
 
-The `TelemetrySink` interface in `src/lib/agent-offers/telemetry.ts` is the
-boundary for a later durable adapter. Phase 1 deliberately does not introduce a
-database or credentials.
+Vercel logs remain the debugging fallback. Postgres is the durable research
+record once configured and migrated.
 
-### Persistence and dashboard limitation
+## Event semantics and interpretation warning
 
-The repository had no database or existing analytics service. Phase 1 uses
-structured Vercel logs only. Log retention and querying depend on the Vercel
-plan, so this is observable but not a permanent research datastore.
+- `landing_fetch`: the experiment overview was requested.
+- `page_fetch`: one A–E variant page was requested.
+- `json_endpoint_fetch`: the D or E offer JSON endpoint was requested.
+- `well_known_fetch`: the experimental discovery document was requested.
+- `outbound_action`: an instrumented synthetic destination was requested.
 
-There is no results dashboard because a serverless instance cannot honestly
-aggregate ephemeral in-memory events, and an unauthenticated log-query endpoint
-would be unsafe. Add durable storage and an authenticated reporting surface in
-a later iteration if retained aggregate metrics are required.
+Events are requests, not unique agents or unique users. Repeated requests are
+not deduplicated because each fetch is experimental evidence.
+
+A crawler page fetch does not prove the offer appeared in an AI answer. An API
+fetch does not prove the offer influenced ranking. An outbound action is
+stronger evidence of destination preservation but may still be machine-
+generated. A shared `test_run_id` is required for stronger causal
+interpretation, and even then it does not create a user identity.
 
 ## Metrics and non-goals
 
@@ -182,6 +309,7 @@ or one agent session.
 npm ci
 npm run dev
 npm test
+npm run agent-lab:test
 npm run lint
 npx tsc --noEmit
 npm run build
@@ -189,29 +317,64 @@ npm run build
 
 The automated suite invokes the actual route exports and checks A–E controls,
 stable canaries, JSON-LD parsing, linked JSON, experimental discovery, response
-content types, no-store behavior, outbound telemetry, input bounding, and bot
-classification.
+content types, no-store behavior, outbound telemetry, input bounding, bot
+classification, database mapping and failures, run propagation, dashboard
+aggregation, every dashboard filter, and missing-database rendering.
+
+## Vercel + Neon Postgres setup
+
+Vercel now connects new Postgres databases through Marketplace providers. Neon
+is the smallest fit for this project and can automatically inject
+`DATABASE_URL` into the selected Vercel environments.
+
+1. Open the existing begod.ai project in Vercel.
+2. Open **Storage** or **Marketplace**, find **Neon**, and choose **Install**.
+   Select **Create New Neon Account** if there is no Neon account yet, then
+   choose the free/smallest suitable Postgres plan and connect the resource to
+   the begod.ai project. If an existing Neon account is linked, select the
+   existing database instead.
+3. During connection, enable at least **Production** and **Preview**. Enable
+   **Development** too if local `vercel env pull` is desired.
+4. Open **Project Settings → Environment Variables** and verify that the exact
+   key `DATABASE_URL` exists for Production and Preview. If the integration
+   created a prefixed name, add `DATABASE_URL` with the same connection value.
+   Never commit or paste that value into documentation.
+5. Open the connected Neon resource's **Query** view in Vercel (or Neon's SQL
+   Editor), paste all of
+   `docs/agent-offers-lab/migrations/001_events.sql`, review it, and run it.
+   If Preview uses a separate Neon database branch, run the same migration on
+   that branch as well.
+6. Redeploy the analytics branch so the deployment receives the new environment
+   variable.
+7. Visit `/lab/agent-offers/results`. It should show an empty dashboard rather
+   than the missing-configuration message.
+8. Visit `/lab/agent-offers/d?run=setup-check-001`, then follow its JSON link.
+9. Refresh `/lab/agent-offers/results?range=1h&run=setup-check-001` and confirm
+   the page and JSON requests persisted.
+
+Official references: [Postgres on Vercel](https://vercel.com/docs/postgres),
+[Neon for Vercel](https://vercel.com/marketplace/neon), and
+[Neon's serverless driver](https://neon.com/docs/serverless/serverless-driver).
 
 ## Vercel preview deployment
 
-No new environment variables or services are required. The project's existing
-optional `NEXT_PUBLIC_SITE_URL` convention remains unchanged; lab canonical
-URLs use the incoming request origin so preview URLs remain self-consistent.
-
-1. Push the `experiment/agent-offers-lab` branch to GitHub:
+1. Push the analytics branch to GitHub:
 
    ```bash
-   git push -u origin experiment/agent-offers-lab
+   git push -u origin experiment/agent-offers-analytics
    ```
 
 2. In the existing Vercel project, confirm Git integration is connected to
    `begod-ai/website` and Preview deployments are enabled for non-production
    branches.
 3. Vercel will build a Preview deployment for the branch. No framework or
-   build-command override is needed.
+   build-command override is needed, but the connected Preview database must
+   already have the migration applied.
 4. Open the Preview URL at `/lab/agent-offers` and run the smoke checks below.
-5. In Vercel logs, filter for `agent_offers_lab` and confirm a `page_fetch`
-   event appears.
+5. Open `/lab/agent-offers/results` and confirm the connected Preview database
+   is configured and migrated.
+6. In Vercel logs, filter for `agent_offers_lab` and confirm a `page_fetch`
+   event appears alongside the durable dashboard record.
 
 Suggested preview smoke checks:
 
@@ -222,6 +385,7 @@ curl -i https://PREVIEW_HOST/api/agent-offers/d
 curl -i https://PREVIEW_HOST/api/agent-offers/e
 curl -i https://PREVIEW_HOST/.well-known/agent-offers.json
 curl -i https://PREVIEW_HOST/lab/agent-offers/out/e
+curl -i https://PREVIEW_HOST/lab/agent-offers/results
 ```
 
 Replace `PREVIEW_HOST` with the generated Vercel hostname. If deployment
