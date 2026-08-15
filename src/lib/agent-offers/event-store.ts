@@ -5,6 +5,7 @@ import type { TelemetryEvent } from "./telemetry";
 export const INSERT_EVENT_SQL = `
   INSERT INTO agent_offer_events (
     occurred_at,
+    source,
     event_type,
     variant,
     canary_id,
@@ -29,10 +30,11 @@ export const INSERT_EVENT_SQL = `
     $8,
     $9,
     $10,
-    $11::jsonb,
-    $12,
+    $11,
+    $12::jsonb,
     $13,
-    $14
+    $14,
+    $15
   )
 `;
 
@@ -48,6 +50,7 @@ export function mapTelemetryEventToInsert(
     sql: INSERT_EVENT_SQL,
     params: [
       event.timestamp,
+      event.source,
       event.event_type,
       event.experiment_variant,
       event.canary_id,

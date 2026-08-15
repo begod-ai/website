@@ -6,7 +6,7 @@ import {
 } from "./dashboard";
 import type { DashboardLoadResult } from "./dashboard-store";
 import { VARIANTS } from "./offer";
-import { TELEMETRY_EVENT_TYPES } from "./telemetry";
+import { AGENT_OFFER_EVENT_TYPES } from "./telemetry";
 
 const RESULTS_PATH = "/lab/agent-offers/results";
 
@@ -141,7 +141,7 @@ function renderFilters(filters: DashboardFilters): string {
     (variant) =>
       `<option value="${variant}"${selected(filters.variant, variant)}>Variant ${variant}</option>`,
   ).join("");
-  const eventOptions = TELEMETRY_EVENT_TYPES.map(
+  const eventOptions = AGENT_OFFER_EVENT_TYPES.map(
     (eventType) =>
       `<option value="${eventType}"${selected(filters.eventType, eventType)}>${escapeHtml(humanize(eventType))}</option>`,
   ).join("");

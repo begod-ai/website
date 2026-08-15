@@ -23,8 +23,8 @@ import {
   type ExperimentVariant,
 } from "./offer";
 import {
-  TELEMETRY_EVENT_TYPES,
-  type TelemetryEventType,
+  AGENT_OFFER_EVENT_TYPES,
+  type AgentOfferTelemetryEventType,
 } from "./telemetry";
 
 export const DASHBOARD_QUERY_SQL = `
@@ -41,7 +41,8 @@ export const DASHBOARD_QUERY_SQL = `
       agent_class,
       test_run_id
     FROM agent_offer_events
-    WHERE ($1::timestamptz IS NULL OR occurred_at >= $1::timestamptz)
+    WHERE source = 'agent_offers_lab'
+      AND ($1::timestamptz IS NULL OR occurred_at >= $1::timestamptz)
       AND ($2::text IS NULL OR agent_class = $2::text)
       AND ($3::text IS NULL OR variant = $3::text)
       AND ($4::text IS NULL OR event_type = $4::text)
@@ -257,8 +258,8 @@ function numberValue(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeEventType(value: unknown): TelemetryEventType | null {
-  return TELEMETRY_EVENT_TYPES.find((candidate) => candidate === value) ?? null;
+function normalizeEventType(value: unknown): AgentOfferTelemetryEventType | null {
+  return AGENT_OFFER_EVENT_TYPES.find((candidate) => candidate === value) ?? null;
 }
 
 function normalizeSummary(value: unknown): DashboardSummary {

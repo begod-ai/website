@@ -66,10 +66,11 @@ test("database insert mapping preserves normalized event fields", () => {
   const event = telemetryEvent();
   const mapping = mapTelemetryEventToInsert(event);
   assert.match(mapping.sql, /INSERT INTO agent_offer_events/);
-  assert.equal(mapping.params[1], "page_fetch");
-  assert.equal(mapping.params[2], "C");
-  assert.equal(mapping.params[7], "openai_searchbot");
-  assert.equal(mapping.params[11], "chatgpt-c-001");
+  assert.equal(mapping.params[1], "agent_offers_lab");
+  assert.equal(mapping.params[2], "page_fetch");
+  assert.equal(mapping.params[3], "C");
+  assert.equal(mapping.params[8], "openai_searchbot");
+  assert.equal(mapping.params[12], "chatgpt-c-001");
 });
 
 test("durable telemetry is graceful when absent or failing", async () => {
@@ -166,6 +167,7 @@ test("dashboard SQL receives only validated server-side filters", async () => {
   assert.equal((await loadDashboard(selected, database)).status, "ok");
   assert.equal(calls.length, 1);
   assert.match(calls[0].sql, /endpoint_matrix_rows/);
+  assert.match(calls[0].sql, /source = 'agent_offers_lab'/);
   assert.deepEqual(calls[0].params, [selected.startAt, "openai_searchbot", "C", "offer_endpoint_fetch", "run-openai-001"]);
 });
 

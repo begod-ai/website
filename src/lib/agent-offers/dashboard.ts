@@ -1,6 +1,9 @@
 import { BOT_CLASSIFICATIONS, parseBotClassification, type BotClassification } from "./bot-classifier";
 import { sanitizeTestRunId, VARIANTS, type DynamicOfferVariant, type ExperimentVariant } from "./offer";
-import { TELEMETRY_EVENT_TYPES, type TelemetryEventType } from "./telemetry";
+import {
+  AGENT_OFFER_EVENT_TYPES,
+  type AgentOfferTelemetryEventType,
+} from "./telemetry";
 
 export const DASHBOARD_RANGES = ["1h", "24h", "7d", "30d", "all"] as const;
 export type DashboardRange = (typeof DASHBOARD_RANGES)[number];
@@ -11,14 +14,14 @@ export interface DashboardFilters {
   startAt: string | null;
   agent: BotClassification | null;
   variant: ExperimentVariant | null;
-  eventType: TelemetryEventType | null;
+  eventType: AgentOfferTelemetryEventType | null;
   testRunId: string | null;
 }
 
 export interface StoredAgentOfferEvent {
   id: string;
   occurredAt: string;
-  eventType: TelemetryEventType;
+  eventType: AgentOfferTelemetryEventType;
   variant: ExperimentVariant | null;
   canaryId: string | null;
   route: string;
@@ -113,7 +116,7 @@ export function parseDashboardFilters(searchParams: URLSearchParams, now = new D
   const requestedVariant = searchParams.get("variant")?.toUpperCase() ?? null;
   const variant = VARIANTS.find((candidate) => candidate === requestedVariant) ?? null;
   const requestedEvent = searchParams.get("event");
-  const eventType = TELEMETRY_EVENT_TYPES.find((candidate) => candidate === requestedEvent) ?? null;
+  const eventType = AGENT_OFFER_EVENT_TYPES.find((candidate) => candidate === requestedEvent) ?? null;
   return {
     range,
     startAt: range === "all" ? null : new Date(now.getTime() - RANGE_MILLISECONDS[range]).toISOString(),

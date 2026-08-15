@@ -1,5 +1,10 @@
 # Web Retrieval Sanitizer Probe
 
+> Legacy note: `/lab/sanitizer-probe` now redirects to the expanded Agent Web
+> Visibility Matrix at `/lab/awvm`, preserving a valid `run` parameter. This
+> document retains the first-generation ground truth for interpreting earlier
+> observations. Current testing and documentation live in `AWVM.md`.
+
 The public route `/lab/sanitizer-probe` is a small diagnostic page for testing
 which parts of one unchanged HTTP/HTML response survive an AI browsing or
 retrieval system's sanitization and extraction pipeline. It is independent of

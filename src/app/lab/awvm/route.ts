@@ -1,13 +1,13 @@
 import { recordTelemetry } from "@/lib/agent-offers/telemetry";
 import { sanitizeTestRunId } from "@/lib/agent-offers/offer";
+import { renderAwvmPage, awvmResourcePath } from "@/lib/awvm/render";
+import { awvmToken } from "@/lib/awvm/registry";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const runId = sanitizeTestRunId(url.searchParams.get("run"));
-  const destination = new URL("/lab/awvm", url.origin);
-  if (runId) destination.searchParams.set("run", runId);
 
   await recordTelemetry(request, {
     source: "awvm",
@@ -16,12 +16,15 @@ export async function GET(request: Request): Promise<Response> {
     canaryId: null,
   });
 
-  return new Response(null, {
-    status: 308,
+  return new Response(renderAwvmPage(url.origin, runId), {
+    status: 200,
     headers: {
       "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-      Location: destination.href,
-      "X-Robots-Tag": "noindex, nofollow",
+      "Content-Type": "text/html; charset=utf-8",
+      Link: `<${awvmResourcePath(awvmToken("headerLink"), runId)}>; rel="awvm-probe"; type="text/plain"`,
+      "X-AWVM-Metadata": awvmToken("headerMetadata"),
+      "X-AWVM-Probe": awvmToken("headerCustom"),
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

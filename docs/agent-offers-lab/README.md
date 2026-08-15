@@ -165,7 +165,7 @@ Event types are:
 - `offer_endpoint_fetch`: a C, D, or E dynamic offer resource requested;
 - `outbound_action`: the local synthetic action requested.
 
-Each event stores UTC time, event type, variant, machine-only canary where
+Each event stores source, UTC time, event type, variant, machine-only canary where
 applicable, route, method, bounded raw user agent, existing normalized agent
 class, referrer, Accept header, sanitized query parameters, controlled run ID,
 environment, and deployment URL.
@@ -186,11 +186,13 @@ Without `DATABASE_URL`, experiment routes continue emitting Vercel logs and
 
 ## Migration
 
-The database has not yet been provisioned, so
-`migrations/001_events.sql` defines only the current experiment vocabulary. It
-creates `agent_offer_events` and indexes time, event type, variant, agent class,
-and non-null test run IDs. The application never creates tables during a
-request.
+`migrations/001_events.sql` creates `agent_offer_events` and the original Agent
+Offers indexes. `migrations/002_awvm_telemetry.sql` adds a source discriminator,
+the two AWVM request-event types, and a source/time index. Historical Agent
+Offers rows remain `agent_offers_lab`; first-generation `/lab/sanitizer-probe`
+rows are reclassified as AWVM without being deleted. The Agent Offers dashboard
+filters to its source so AWVM traffic does not alter its totals. The application
+never creates or changes tables during a request.
 
 Apply it with a configured development connection:
 
@@ -198,9 +200,9 @@ Apply it with a configured development connection:
 npm run agent-lab:migrate
 ```
 
-Or run the complete SQL file in the connected Neon SQL editor. The table and
-indexes use `IF NOT EXISTS`. Because this initial migration has been revised,
-do not apply an older analytics-branch copy first.
+The command applies numbered SQL files in order. For an existing database that
+already has `001_events.sql`, apply `002_awvm_telemetry.sql` before deploying
+AWVM. Both migrations are safe to rerun.
 
 Development-only synthetic data is opt-in and refuses production environments:
 

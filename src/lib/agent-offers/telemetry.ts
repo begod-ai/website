@@ -5,17 +5,30 @@ import {
   type ExperimentVariant,
 } from "./offer";
 
-export const TELEMETRY_EVENT_TYPES = [
+export const AGENT_OFFER_EVENT_TYPES = [
   "landing_fetch",
   "page_fetch",
   "offer_endpoint_fetch",
   "outbound_action",
 ] as const;
 
+export const AWVM_EVENT_TYPES = [
+  "awvm_page_fetch",
+  "awvm_resource_fetch",
+] as const;
+
+export const TELEMETRY_EVENT_TYPES = [
+  ...AGENT_OFFER_EVENT_TYPES,
+  ...AWVM_EVENT_TYPES,
+] as const;
+
+export type TelemetrySource = "agent_offers_lab" | "awvm";
+export type AgentOfferTelemetryEventType = (typeof AGENT_OFFER_EVENT_TYPES)[number];
+export type AwvmTelemetryEventType = (typeof AWVM_EVENT_TYPES)[number];
 export type TelemetryEventType = (typeof TELEMETRY_EVENT_TYPES)[number];
 
 export interface TelemetryEvent {
-  source: "agent_offers_lab";
+  source: TelemetrySource;
   timestamp: string;
   route: string;
   event_type: TelemetryEventType;
@@ -61,7 +74,7 @@ export interface TelemetryWriteDependencies {
 function logDatabaseError(event: TelemetryEvent, error: unknown): void {
   console.error(
     JSON.stringify({
-      source: "agent_offers_lab",
+      source: event.source,
       event_type: "telemetry_database_error",
       route: event.route,
       experiment_variant: event.experiment_variant,
@@ -140,6 +153,7 @@ export function createTelemetryEvent(
     eventType: TelemetryEventType;
     variant: ExperimentVariant | null;
     canaryId: string | null;
+    source?: TelemetrySource;
   },
 ): TelemetryEvent {
   const url = new URL(request.url);
@@ -151,7 +165,7 @@ export function createTelemetryEvent(
     ) ?? "unknown";
 
   return {
-    source: "agent_offers_lab",
+    source: details.source ?? "agent_offers_lab",
     timestamp: new Date().toISOString(),
     route: url.pathname,
     event_type: details.eventType,
@@ -175,6 +189,7 @@ export async function recordTelemetry(
     eventType: TelemetryEventType;
     variant: ExperimentVariant | null;
     canaryId: string | null;
+    source?: TelemetrySource;
   },
 ): Promise<void> {
   const event = createTelemetryEvent(request, details);
@@ -185,7 +200,7 @@ export async function recordTelemetry(
     // Telemetry must never make a research route unavailable.
     console.error(
       JSON.stringify({
-        source: "agent_offers_lab",
+        source: event.source,
         event_type: "telemetry_error",
         route: event.route,
         message: error instanceof Error ? error.message : "Unknown telemetry error",
