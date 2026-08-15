@@ -9,8 +9,7 @@ CREATE TABLE IF NOT EXISTS agent_offer_events (
     event_type IN (
       'landing_fetch',
       'page_fetch',
-      'json_endpoint_fetch',
-      'well_known_fetch',
+      'offer_endpoint_fetch',
       'outbound_action'
     )
   ),

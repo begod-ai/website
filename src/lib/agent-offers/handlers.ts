@@ -1,9 +1,12 @@
 import {
   CANARY_IDS,
-  createDiscoveryDocument,
-  createOfferDocument,
+  createSponsoredOfferDocument,
+  offerEndpointPath,
+  parseOfferVariant,
   parseVariant,
+  resolveSlotContext,
   sanitizeTestRunId,
+  withTestRun,
 } from "./offer";
 import {
   renderLandingPage,
@@ -25,18 +28,15 @@ function requestTestRunId(request: Request): string | null {
 
 function htmlResponse(
   body: string,
-  options: { status?: number; noIndex?: boolean } = {},
+  options: { status?: number; noIndex?: boolean; linkHeader?: string } = {},
 ): Response {
   const headers = new Headers({
     "Cache-Control": NO_STORE,
     "Content-Type": "text/html; charset=utf-8",
     "X-Content-Type-Options": "nosniff",
   });
-
-  if (options.noIndex) {
-    headers.set("X-Robots-Tag", "noindex, nofollow");
-  }
-
+  if (options.noIndex) headers.set("X-Robots-Tag", "noindex, nofollow");
+  if (options.linkHeader) headers.set("Link", options.linkHeader);
   return new Response(body, { status: options.status ?? 200, headers });
 }
 
@@ -52,28 +52,14 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 export async function handleLandingPage(request: Request): Promise<Response> {
-  await recordTelemetry(request, {
-    eventType: "landing_fetch",
-    variant: null,
-    canaryId: null,
-  });
-
-  return htmlResponse(
-    renderLandingPage(requestOrigin(request), requestTestRunId(request)),
-  );
+  await recordTelemetry(request, { eventType: "landing_fetch", variant: null, canaryId: null });
+  return htmlResponse(renderLandingPage(requestOrigin(request), requestTestRunId(request)));
 }
 
-export async function handleVariantPage(
-  request: Request,
-  rawVariant: string,
-): Promise<Response> {
+export async function handleVariantPage(request: Request, rawVariant: string): Promise<Response> {
   const variant = parseVariant(rawVariant);
-
   if (!variant) {
-    return htmlResponse(renderNotFoundPage(requestOrigin(request)), {
-      status: 404,
-      noIndex: true,
-    });
+    return htmlResponse(renderNotFoundPage(requestOrigin(request)), { status: 404, noIndex: true });
   }
 
   await recordTelemetry(request, {
@@ -82,57 +68,30 @@ export async function handleVariantPage(
     canaryId: CANARY_IDS[variant],
   });
 
-  return htmlResponse(
-    renderVariantPage(
-      variant,
-      requestOrigin(request),
-      requestTestRunId(request),
-    ),
-  );
+  const testRunId = requestTestRunId(request);
+  const linkHeader = variant === "E"
+    ? `<${withTestRun(offerEndpointPath("E"), testRunId)}>; rel="agent-offers"; type="application/json"`
+    : undefined;
+  return htmlResponse(renderVariantPage(variant, requestOrigin(request), testRunId), { linkHeader });
 }
 
-export async function handleOfferJson(
-  request: Request,
-  rawVariant: string,
-): Promise<Response> {
-  const variant = parseVariant(rawVariant);
-
-  if (variant !== "D" && variant !== "E") {
-    return jsonResponse({ error: "Offer representation not found." }, 404);
-  }
+export async function handleOfferEndpoint(request: Request, rawSlot: string): Promise<Response> {
+  const context = resolveSlotContext(rawSlot);
+  if (!context) return jsonResponse({ error: "Offer slot not found." }, 404);
 
   await recordTelemetry(request, {
-    eventType: "json_endpoint_fetch",
-    variant,
-    canaryId: CANARY_IDS[variant],
+    eventType: "offer_endpoint_fetch",
+    variant: context.variant,
+    canaryId: CANARY_IDS[context.variant],
   });
 
-  return jsonResponse(createOfferDocument(variant, requestTestRunId(request)));
+  return jsonResponse(createSponsoredOfferDocument(context.variant, requestTestRunId(request)));
 }
 
-export async function handleDiscoveryDocument(
-  request: Request,
-): Promise<Response> {
-  await recordTelemetry(request, {
-    eventType: "well_known_fetch",
-    variant: "E",
-    canaryId: CANARY_IDS.E,
-  });
-
-  return jsonResponse(createDiscoveryDocument(requestTestRunId(request)));
-}
-
-export async function handleOutboundAction(
-  request: Request,
-  rawVariant: string,
-): Promise<Response> {
-  const variant = parseVariant(rawVariant);
-
+export async function handleOutboundAction(request: Request, rawVariant: string): Promise<Response> {
+  const variant = parseOfferVariant(rawVariant);
   if (!variant) {
-    return htmlResponse(renderNotFoundPage(requestOrigin(request)), {
-      status: 404,
-      noIndex: true,
-    });
+    return htmlResponse(renderNotFoundPage(requestOrigin(request)), { status: 404, noIndex: true });
   }
 
   await recordTelemetry(request, {
@@ -140,13 +99,8 @@ export async function handleOutboundAction(
     variant,
     canaryId: CANARY_IDS[variant],
   });
-
   return htmlResponse(
-    renderOutboundConfirmation(
-      variant,
-      requestOrigin(request),
-      requestTestRunId(request),
-    ),
+    renderOutboundConfirmation(variant, requestOrigin(request), requestTestRunId(request)),
     { noIndex: true },
   );
 }

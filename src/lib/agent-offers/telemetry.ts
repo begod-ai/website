@@ -8,8 +8,7 @@ import {
 export const TELEMETRY_EVENT_TYPES = [
   "landing_fetch",
   "page_fetch",
-  "json_endpoint_fetch",
-  "well_known_fetch",
+  "offer_endpoint_fetch",
   "outbound_action",
 ] as const;
 
