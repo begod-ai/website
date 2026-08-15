@@ -1,403 +1,285 @@
-# Agent Offers Lab
+# Invisible Agent Advertising Lab
 
-## Purpose
+The public research landing page is `/lab/agent-offers`. The experiment asks:
 
-This is a public research experiment for testing how AI agents, AI search
-systems, and web crawlers discover and understand commercial information on
-ordinary websites.
+> Can an autonomous agent consuming an otherwise ordinary publisher page
+> discover and use a sponsored commercial offer that is completely absent from
+> the rendered human experience?
 
-The research question is:
+The secondary question is which non-rendered mechanism best supports dynamic
+offer discovery. This is experimental research, not an established advertising
+or web standard.
 
-> What is the smallest and most reliable web representation that causes AI
-> agents to discover, correctly parse, and preserve a clearly disclosed
-> commercial offer?
+## Hypothesis
 
-The experiment is intentionally small. It is not an affiliate network, ad
-network, advertiser product, bidding system, billing system, or retailer.
+A publisher may be able to install a small integration once and expose
+machine-readable sponsored opportunities without changing the page humans see.
+The publisher page can advertise a slot while a central service selects the
+actual offer only when an agent requests it. This is conceptually similar to an
+advertising network without a visible rectangular placement.
 
-## Synthetic offer and ethics
+Crawler classification is analytics-only. Every user agent receives the same
+document for a given variant; there is no bot-specific HTML response.
 
-All variants show the same fictional offer:
+## Human experience
 
-- Product: Aster 65W USB-C GaN Charger
-- Merchant: Example Electronics
-- Price: €34.90 EUR
-- Availability: In stock
-- Shipping: Delivery to Ireland available
-- Offer type: Sponsored test offer
+All A–E pages render the same 500–800 word neutral article, **Choosing a USB-C
+Charger for Travel**. The pages share one authoritative body renderer and have
+identical title, description, headings, prose, order, styling, layout, and
+visible links. Only the variant canonical URL and non-rendered machine layer
+differ.
 
-Every variant says: "This is synthetic test data used for an AI-agent research
-experiment. No real product is being sold."
+The article never names the synthetic product, merchant, price, sponsorship,
+experiment, or canaries. Automated tests compare the complete `<body>` across
+all variants.
 
-There are no discounts, reviews, endorsements, real retailer destinations, or
-purchase flows. An outbound action ends at a local confirmation page and does
-not redirect.
+## Variants
 
-## Routes and variants
-
-| Route | Representation | Stable canary |
+| Variant | Machine mechanism | Commercial canary exposed to client |
 |---|---|---|
-| `/lab/agent-offers` | Experiment landing page and crawlable links | — |
-| `/lab/agent-offers/a` | A — plain visible HTML | `AGENTLAB-A-7F3K9` |
-| `/lab/agent-offers/b` | B — semantic accessible HTML | `AGENTLAB-B-2M8Q4` |
-| `/lab/agent-offers/c` | C — B plus Schema.org JSON-LD | `AGENTLAB-C-5R1X7` |
-| `/lab/agent-offers/d` | D — C plus an ordinary link to offer JSON | `AGENTLAB-D-9P6N2` |
-| `/lab/agent-offers/e` | E — D plus experimental discovery metadata | `AGENTLAB-E-4T8W5` |
-| `/api/agent-offers/d` | Variant D offer JSON | `AGENTLAB-D-9P6N2` |
-| `/api/agent-offers/e` | Variant E offer JSON | `AGENTLAB-E-4T8W5` |
-| `/.well-known/agent-offers.json` | Experimental discovery document for E | — |
-| `/lab/agent-offers/out/{a-e}` | Instrumented synthetic outbound action | Corresponding variant |
-| `/lab/agent-offers/results` | Durable server-rendered research dashboard | — |
+| A | Control: no advertising mechanism | None |
+| B | Complete sponsored offer in `application/agent-offer+json` | `AGENTAD-B-7F3K9` |
+| C | Experimental `<link rel="agent-offers">` to a dynamic endpoint | Endpoint returns `AGENTAD-C-2M8Q4` |
+| D | Small `application/agent-ad-manifest+json` pointer | Endpoint returns `AGENTAD-D-5R1X7` |
+| E | The same endpoint exposed through `<link>`, manifest, and HTTP `Link` header | Endpoint returns `AGENTAD-E-9P6N2` |
 
-`rel="agent-offers"` and the `.well-known` document are experimental
-proposals used only by Variant E. The site does not describe them as standards.
+The custom MIME types and `agent-offers` relationship are explicitly
+experimental. No variant uses commercial Schema.org `Product` or `Offer`
+markup.
 
-## Experimental controls
+### A — control
 
-The product, description, merchant, price, currency, availability, shipping,
-sponsorship disclosure, action label, styling, and prominence are held constant
-across A–E. The intended independent variable is representation:
+`/lab/agent-offers/a` has no offer payload, manifest, custom discovery link,
+advertising HTTP header, endpoint reference, or commercial canary. Server-side
+telemetry may still record that Variant A was fetched.
 
-- A uses headings, paragraphs, text, and ordinary anchors.
-- B changes the offer markup to `main`, `article`, `header`, `section`, and
-  `dl`/`dt`/`dd` with a logical accessible hierarchy.
-- C adds valid `Product` and `Offer` JSON-LD. The canary uses Schema.org's
-  appropriate `identifier` property.
-- D adds an ordinary typed link to the D JSON endpoint.
-- E adds `rel="agent-offers"`, a separate E JSON endpoint, and the experimental
-  `.well-known` discovery document.
+### B — full inline offer
 
-Unavoidable differences are the variant letter and canary ID on every page,
-the extra visible JSON link in D/E, and E's visible disclosure that its custom
-relationship is experimental. D/E therefore have one more visible link than
-A–C. These differences are required by the tested representations.
+`/lab/agent-offers/b` embeds the full synthetic sponsored offer in a
+non-rendering script element. It has no dynamic endpoint pointer. A page fetch
+does not prove an agent parsed this payload, so the dashboard never calls it an
+impression.
+
+### C — dynamic endpoint pointer
+
+`/lab/agent-offers/c` includes only:
+
+```html
+<link rel="agent-offers" type="application/json"
+      href="/api/agent-offers/serve/charger-c">
+```
+
+The actual offer is absent from the publisher document and selected when the
+endpoint is requested.
+
+### D — small manifest
+
+`/lab/agent-offers/d` includes a compact non-rendering manifest with synthetic
+publisher, page, and slot IDs plus `/api/agent-offers/serve/charger-d`. It does
+not contain product, merchant, price, or offer canary data.
+
+### E — combined discovery
+
+`/lab/agent-offers/e` combines a discovery link, small manifest, and response
+header. All three point to `/api/agent-offers/serve/charger-e`. Other variants
+do not receive the advertising `Link` header.
+
+## Why dynamic serving matters
+
+A future network may choose an offer using live availability, price, affiliate
+inventory, advertiser eligibility or bids, commercial context, and measured
+performance. C–E therefore expose stable slots rather than permanently placing
+the commercial payload on the publisher page.
+
+The current endpoint flow is deliberately small:
+
+```text
+resolve synthetic publisher/page/slot context
+  → selectOffer(context)
+  → serialize a sponsored synthetic offer
+  → record request telemetry
+```
+
+`selectOffer` is the replaceable boundary. For now selection is deterministic.
+The publisher page does not contact an ad service during an ordinary human page
+request; the second request occurs only if a consumer follows the pointer.
+
+## Dynamic offer endpoints
+
+| Endpoint | Variant |
+|---|---|
+| `/api/agent-offers/serve/charger-c` | C |
+| `/api/agent-offers/serve/charger-d` | D |
+| `/api/agent-offers/serve/charger-e` | E |
+
+Responses use `application/json`, `Cache-Control: no-store`, and clearly mark
+the offer as `sponsored: true` and `synthetic: true`. Context uses the public
+synthetic identifiers `pub_begod_lab`, `travel_charger`, and `charger_c`,
+`charger_d`, or `charger_e`.
+
+Offer actions remain local, for example `/lab/agent-offers/out/e`. The
+confirmation records telemetry, states that the offer was synthetic, and never
+redirects to a merchant.
+
+## No origin-wide discovery
+
+The old `/.well-known/agent-offers.json` route has been removed. An origin-wide
+commercial resource could be discovered while testing A and would contaminate
+the control. Origin-wide discovery requires a later experiment on an isolated
+domain or subdomain.
 
 ## Controlled runs
 
-An optional `run` query parameter groups requests from a deliberate experiment:
+Use an optional `run` query parameter to correlate a deliberate test:
 
 ```text
-/lab/agent-offers/d?run=chatgpt-001
+/lab/agent-offers/c?run=chatgpt-c-001
+/api/agent-offers/serve/charger-c?run=chatgpt-c-001
+/lab/agent-offers/out/c?run=chatgpt-c-001
 ```
 
-Run IDs accept only ASCII letters, digits, hyphens, and underscores and are at
-most 64 characters. Invalid values are discarded. A valid ID is propagated to
-the linked JSON endpoint and synthetic outbound action, for example:
-
-```text
-/api/agent-offers/d?run=chatgpt-001
-/lab/agent-offers/out/d?run=chatgpt-001
-```
-
-The run ID is not added to visible offer copy, canonical URLs, or Product/Offer
-JSON-LD. Without `run`, the experiment output remains unchanged.
-
-## Isolation from the production site
-
-The lab uses App Router route handlers that return complete, controlled HTML
-documents. Route handlers do not render through the production React layout.
-That matters because the main layout contains site-wide Organization JSON-LD,
-which would invalidate A and B's controls.
-
-The experiment is additive under `src/app/lab`, `src/app/api/agent-offers`,
-`src/app/.well-known`, and `src/lib/agent-offers`. It does not change the global
-layout, navigation, branding, typography, components, or deployment
-architecture. The only existing discovery file changed is `src/app/sitemap.ts`.
-
-The existing `robots.ts` allows all user agents and links the sitemap, so no
-site-wide crawler policy change was needed. The landing and A–E pages are in
-the sitemap with deliberately low priority. Outbound confirmation pages use
-`noindex,nofollow` metadata and headers.
-
-## Telemetry on Vercel
-
-Every relevant request is served dynamically with
-`Cache-Control: private, no-store`, then emits one JSON line through
-`console.info`. Vercel records these as function runtime logs. The event shape is:
-
-```json
-{
-  "source": "agent_offers_lab",
-  "timestamp": "2026-08-15T00:00:00.000Z",
-  "route": "/lab/agent-offers/d",
-  "event_type": "page_fetch",
-  "experiment_variant": "D",
-  "canary_id": "AGENTLAB-D-9P6N2",
-  "request_method": "GET",
-  "user_agent": "...",
-  "bot_classification": "unknown",
-  "referrer": null,
-  "accept": "text/html",
-  "query_parameters": {},
-  "test_run_id": null,
-  "environment": "production",
-  "deployment_url": "https://begod.ai"
-}
-```
-
-Event types are `landing_fetch`, `page_fetch`, `json_endpoint_fetch`,
-`well_known_fetch`, and `outbound_action`.
-
-Bot classification rules are ordered and centralized in
-`src/lib/agent-offers/bot-classifier.ts`. They distinguish identifiable OpenAI,
-ChatGPT, Perplexity, Google, Bing, and Anthropic/Claude fetchers before falling
-back to `generic_bot`, `normal_browser`, or `unknown`. A surprising user-agent
-is not automatically labelled as an AI agent.
-
-Request headers are treated as untrusted input. Recorded header values and
-query keys/values are control-character-stripped, length-bounded, and query
-keys that look sensitive (such as tokens, secrets, email, auth, session, or
-password fields) are dropped. No IP address, cookie, arbitrary header map,
-browser fingerprint, or client-side tracking identifier is recorded.
+IDs accept only ASCII letters, digits, hyphens, and underscores, with a maximum
+of 64 characters. Invalid values are discarded. Valid IDs propagate through
+machine pointers and action URLs, but not visible article content or canonical
+URLs.
 
 ## Durable telemetry
 
-The production telemetry sequence is:
+Every relevant request follows this failure-isolated path:
 
 ```text
 normalize request event
-  → write the existing structured Vercel log
-  → attempt a parameterized Postgres insert
-  → return the experiment response
+  → write structured Vercel log
+  → attempt parameterized Postgres insert with a bounded timeout
+  → return the requested resource
 ```
 
-Postgres access uses the lightweight Neon serverless driver over HTTP. Database
-queries have a bounded timeout. A missing `DATABASE_URL`, timeout, or database
-error never causes an experiment route to fail. The structured request log is
-written first; database failures emit a separate redacted
-`telemetry_database_error` log without exposing the connection string.
+A missing `DATABASE_URL`, timeout, or database failure never breaks an
+experiment page. Database errors are logged in redacted form and structured
+request logging remains active.
 
-The application never creates tables during a request. Schema changes are
-explicit migrations under `docs/agent-offers-lab/migrations`.
+Event types are:
 
-### Database schema
+- `landing_fetch`: research overview requested;
+- `page_fetch`: an ordinary publisher article variant requested;
+- `offer_endpoint_fetch`: a C, D, or E dynamic offer resource requested;
+- `outbound_action`: the local synthetic action requested.
 
-`agent_offer_events` stores one row for each HTTP request. Important columns
-are the UTC occurrence time, validated event type, variant, canary, route,
-request method, raw user agent, normalized agent class, referrer, Accept header,
-sanitized JSON query parameters, controlled run ID, Vercel environment, and
-deployment URL. It deliberately has no IP, cookie, fingerprint, or visitor ID.
+Each event stores UTC time, event type, variant, machine-only canary where
+applicable, route, method, bounded raw user agent, existing normalized agent
+class, referrer, Accept header, sanitized query parameters, controlled run ID,
+environment, and deployment URL.
 
-Indexes cover `occurred_at`, `event_type`, `variant`, `agent_class`, and
-non-null `test_run_id`.
+It does not store IP addresses, cookies, fingerprints, arbitrary headers,
+visitor IDs, client storage, or third-party tracking data. Repeated HTTP
+requests are retained because they are experimental evidence.
 
 ## Environment
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | For durable telemetry and results | PostgreSQL connection string, preferably a pooled Neon URL for Vercel |
+| `DATABASE_URL` | For durable telemetry/results | PostgreSQL connection URL, preferably a pooled Neon URL |
 | `NEXT_PUBLIC_SITE_URL` | Existing optional setting | Main-site canonical URL |
 
-If `DATABASE_URL` is absent, experiment pages continue writing structured
-Vercel logs and `/lab/agent-offers/results` names the missing variable without
-showing any secret value.
+Without `DATABASE_URL`, experiment routes continue emitting Vercel logs and
+`/lab/agent-offers/results` displays a safe configuration notice.
 
 ## Migration
 
-The idempotent migration is
-`docs/agent-offers-lab/migrations/001_events.sql`. Apply it once to each database
-or database branch before relying on durable events.
+The database has not yet been provisioned, so
+`migrations/001_events.sql` defines only the current experiment vocabulary. It
+creates `agent_offer_events` and indexes time, event type, variant, agent class,
+and non-null test run IDs. The application never creates tables during a
+request.
 
-With `DATABASE_URL` available in the current shell:
+Apply it with a configured development connection:
 
 ```bash
 npm run agent-lab:migrate
 ```
 
-Alternatively, paste the complete SQL file into the connected Neon/Vercel SQL
-query editor and run it. Re-running the migration is safe because table and
-index creation use `IF NOT EXISTS`.
+Or run the complete SQL file in the connected Neon SQL editor. The table and
+indexes use `IF NOT EXISTS`. Because this initial migration has been revised,
+do not apply an older analytics-branch copy first.
 
-### Development seed data
-
-Synthetic seed data is opt-in and refuses to run when either `NODE_ENV` or
-`VERCEL_ENV` is `production`:
+Development-only synthetic data is opt-in and refuses production environments:
 
 ```bash
 AGENT_LAB_ALLOW_SEED=true npm run agent-lab:seed
 ```
 
-This inserts a small set of clearly synthetic OpenAI, Perplexity, Google,
-Claude, and browser request events into the configured development database.
-There is no public seed endpoint and production is never seeded automatically.
-
 ## Dashboard
 
-`/lab/agent-offers/results` is a server-rendered, `noindex,nofollow` research
-dashboard. It provides:
+`/lab/agent-offers/results` is server-rendered and `noindex,nofollow`. It uses
+one Postgres aggregation query rather than loading the full event table. It
+shows:
 
-- total, AI/bot, page, JSON, well-known, and outbound request counts;
-- normalized agent-class and controlled-run counts;
-- a dynamic agent × A–E page-fetch matrix with column totals;
-- an aggregate discovery funnel;
-- variant and agent breakdowns;
-- the newest 100 matching events;
-- recent controlled runs with one-click run filtering.
+- publisher-page and known AI/bot page fetches;
+- dynamic offer endpoint requests and outbound actions;
+- controlled runs and normalized agent classes;
+- agent × A–E page-fetch matrix;
+- agent × C–E endpoint-discovery matrix;
+- aggregate page → endpoint → action request funnel;
+- mechanism, agent, run, and recent-event tables.
 
-Filters are server-side URL parameters and therefore bookmarkable:
+Server-side filters support `1h`, `24h`, `7d`, `30d`, or all time, plus agent,
+variant, event, and run:
 
 ```text
-/lab/agent-offers/results?range=24h&agent=openai_searchbot&variant=D
-/lab/agent-offers/results?range=all&run=chatgpt-001
+/lab/agent-offers/results?range=24h&agent=openai_searchbot&variant=C
+/lab/agent-offers/results?range=all&run=chatgpt-c-001
 ```
 
-Supported ranges are `1h`, `24h`, `7d`, `30d`, and `all`. Agent, variant,
-event, and run filters are validated against application enums or the strict run
-format before they reach parameterized SQL. All displayed timestamps are UTC.
+All displayed times are UTC.
 
-Dashboard aggregation is performed in Postgres with one query; it does not load
-the complete event table into application memory.
+## Interpretation warning
 
-### Finding events in Vercel
+The server can objectively observe a publisher-page request, dynamic endpoint
+request, and synthetic action request. These are requests—not users, unique
+agents, sessions, or ad impressions.
 
-1. Open the Vercel project.
-2. Open **Observability → Logs** for the relevant preview or production
-   deployment.
-3. Filter for `agent_offers_lab`.
-4. Narrow by `event_type`, `experiment_variant`, `canary_id`, or
-   `bot_classification` where the Vercel log interface supports parsed JSON
-   fields.
-5. Export logs within the project's retention window before analysis if the
-   experiment will run longer than that window.
+The server cannot infer from those events alone whether a model parsed B’s
+inline payload, mentioned the offer in an answer, recovered a canary, disclosed
+sponsorship, preserved the action URL, recommended the product, showed it to a
+user, or changed ranking. These are external researcher observations. Manual
+outcome recording is intentionally deferred to a separate table/UI rather than
+mixing subjective observations into HTTP telemetry.
 
-Vercel logs remain the debugging fallback. Postgres is the durable research
-record once configured and migrated.
-
-## Event semantics and interpretation warning
-
-- `landing_fetch`: the experiment overview was requested.
-- `page_fetch`: one A–E variant page was requested.
-- `json_endpoint_fetch`: the D or E offer JSON endpoint was requested.
-- `well_known_fetch`: the experimental discovery document was requested.
-- `outbound_action`: an instrumented synthetic destination was requested.
-
-Events are requests, not unique agents or unique users. Repeated requests are
-not deduplicated because each fetch is experimental evidence.
-
-A crawler page fetch does not prove the offer appeared in an AI answer. An API
-fetch does not prove the offer influenced ranking. An outbound action is
-stronger evidence of destination preservation but may still be machine-
-generated. A shared `test_run_id` is required for stronger causal
-interpretation, and even then it does not create a user identity.
-
-## Metrics and non-goals
-
-This phase measures:
-
-- retrieval;
-- parsing and canary recovery;
-- JSON and `.well-known` endpoint discovery;
-- preservation of the local destination;
-- outbound-action behavior.
-
-It does not test real affiliate conversion, advertiser bidding, reverse
-auctions, payments, publisher revenue sharing, production advertising, or
-personalization.
-
-## Caching implications
-
-Lab HTML, offer JSON, discovery JSON, and outbound confirmations are all
-dynamic and `no-store`. This is intentionally different from cacheable static
-content: telemetry should represent an actual request reaching the function.
-Intermediaries outside Vercel may still make their own requests or ignore
-directives, so one log event should not automatically be treated as one human
-or one agent session.
-
-## Local validation
+## Validation
 
 ```bash
 npm ci
-npm run dev
-npm test
 npm run agent-lab:test
 npm run lint
 npx tsc --noEmit
 npm run build
 ```
 
-The automated suite invokes the actual route exports and checks A–E controls,
-stable canaries, JSON-LD parsing, linked JSON, experimental discovery, response
-content types, no-store behavior, outbound telemetry, input bounding, bot
-classification, database mapping and failures, run propagation, dashboard
-aggregation, every dashboard filter, and missing-database rendering.
+Tests cover exact visible A–E parity, browser/crawler response equality,
+machine-layer isolation, E-only HTTP headers, dynamic selection, controlled-run
+propagation, removal of origin-wide discovery, telemetry failure isolation,
+dashboard matrices and filters, privacy constraints, and existing site build
+behavior.
 
-## Vercel + Neon Postgres setup
+## Vercel + Neon setup
 
-Vercel now connects new Postgres databases through Marketplace providers. Neon
-is the smallest fit for this project and can automatically inject
-`DATABASE_URL` into the selected Vercel environments.
-
-1. Open the existing begod.ai project in Vercel.
-2. Open **Storage** or **Marketplace**, find **Neon**, and choose **Install**.
-   Select **Create New Neon Account** if there is no Neon account yet, then
-   choose the free/smallest suitable Postgres plan and connect the resource to
-   the begod.ai project. If an existing Neon account is linked, select the
-   existing database instead.
-3. During connection, enable at least **Production** and **Preview**. Enable
-   **Development** too if local `vercel env pull` is desired.
-4. Open **Project Settings → Environment Variables** and verify that the exact
-   key `DATABASE_URL` exists for Production and Preview. If the integration
-   created a prefixed name, add `DATABASE_URL` with the same connection value.
-   Never commit or paste that value into documentation.
-5. Open the connected Neon resource's **Query** view in Vercel (or Neon's SQL
-   Editor), paste all of
-   `docs/agent-offers-lab/migrations/001_events.sql`, review it, and run it.
-   If Preview uses a separate Neon database branch, run the same migration on
-   that branch as well.
-6. Redeploy the analytics branch so the deployment receives the new environment
-   variable.
-7. Visit `/lab/agent-offers/results`. It should show an empty dashboard rather
-   than the missing-configuration message.
-8. Visit `/lab/agent-offers/d?run=setup-check-001`, then follow its JSON link.
+1. In the existing Vercel project, open **Storage** or **Marketplace**.
+2. Install **Neon** and create or select a small Postgres database.
+3. Connect it to both **Production** and **Preview** environments.
+4. In **Project Settings → Environment Variables**, verify the exact key
+   `DATABASE_URL` exists for both. Never commit its value.
+5. In Neon’s SQL editor, run the complete
+   `docs/agent-offers-lab/migrations/001_events.sql` file. Apply it separately
+   to a Preview database branch if Preview is isolated.
+6. Deploy the application branch after the environment variable and migration
+   are ready.
+7. Visit `/lab/agent-offers/results`; an empty configured dashboard should
+   replace the missing-configuration notice.
+8. Visit `/lab/agent-offers/c?run=setup-check-001`, then request the linked
+   `/api/agent-offers/serve/charger-c?run=setup-check-001` resource.
 9. Refresh `/lab/agent-offers/results?range=1h&run=setup-check-001` and confirm
-   the page and JSON requests persisted.
+   both requests persisted.
 
-Official references: [Postgres on Vercel](https://vercel.com/docs/postgres),
+References: [Vercel Postgres](https://vercel.com/docs/postgres),
 [Neon for Vercel](https://vercel.com/marketplace/neon), and
-[Neon's serverless driver](https://neon.com/docs/serverless/serverless-driver).
-
-## Vercel preview deployment
-
-1. Push the analytics branch to GitHub:
-
-   ```bash
-   git push -u origin experiment/agent-offers-analytics
-   ```
-
-2. In the existing Vercel project, confirm Git integration is connected to
-   `begod-ai/website` and Preview deployments are enabled for non-production
-   branches.
-3. Vercel will build a Preview deployment for the branch. No framework or
-   build-command override is needed, but the connected Preview database must
-   already have the migration applied.
-4. Open the Preview URL at `/lab/agent-offers` and run the smoke checks below.
-5. Open `/lab/agent-offers/results` and confirm the connected Preview database
-   is configured and migrated.
-6. In Vercel logs, filter for `agent_offers_lab` and confirm a `page_fetch`
-   event appears alongside the durable dashboard record.
-
-Suggested preview smoke checks:
-
-```bash
-curl -i https://PREVIEW_HOST/lab/agent-offers/a
-curl -i https://PREVIEW_HOST/lab/agent-offers/e
-curl -i https://PREVIEW_HOST/api/agent-offers/d
-curl -i https://PREVIEW_HOST/api/agent-offers/e
-curl -i https://PREVIEW_HOST/.well-known/agent-offers.json
-curl -i https://PREVIEW_HOST/lab/agent-offers/out/e
-curl -i https://PREVIEW_HOST/lab/agent-offers/results
-```
-
-Replace `PREVIEW_HOST` with the generated Vercel hostname. If deployment
-protection is enabled, use an authorized browser/session or Vercel's documented
-protection-bypass mechanism for controlled crawler tests; do not expose a
-bypass secret in URLs or logs.
-
-## Example research prompt
-
-> Visit this URL and identify any sponsored commercial offer. Return the
-> product, merchant, price, currency, availability, shipping, sponsorship
-> status, action URL, and canary ID. State which resources you fetched.
-
-Record the model, tool configuration, time, starting URL, exact prompt, answer,
-and relevant server events outside this repository so trials are reproducible.
+[Neon serverless driver](https://neon.com/docs/serverless/serverless-driver).

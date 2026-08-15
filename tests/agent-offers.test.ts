@@ -1,232 +1,176 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { after, before, test } from "node:test";
-import { GET as getDiscovery } from "../src/app/.well-known/agent-offers.json/route";
-import { GET as getOfferJson } from "../src/app/api/agent-offers/[variant]/route";
+import { GET as getOffer } from "../src/app/api/agent-offers/serve/[slot]/route";
 import { GET as getVariant } from "../src/app/lab/agent-offers/[variant]/route";
 import { GET as getOutbound } from "../src/app/lab/agent-offers/out/[variant]/route";
 import { GET as getLanding } from "../src/app/lab/agent-offers/route";
 import { classifyUserAgent } from "../src/lib/agent-offers/bot-classifier";
-import {
-  CANARY_IDS,
-  SYNTHETIC_OFFER,
-  VARIANTS,
-  type ExperimentVariant,
-} from "../src/lib/agent-offers/offer";
-import {
-  createTelemetryEvent,
-  resetTelemetrySink,
-  setTelemetrySink,
-  type TelemetryEvent,
-} from "../src/lib/agent-offers/telemetry";
+import { CANARY_IDS, SYNTHETIC_OFFER, VARIANTS, type ExperimentVariant } from "../src/lib/agent-offers/offer";
+import { createTelemetryEvent, resetTelemetrySink, setTelemetrySink, type TelemetryEvent } from "../src/lib/agent-offers/telemetry";
 
 const capturedEvents: TelemetryEvent[] = [];
-
-before(() => {
-  setTelemetrySink({
-    write(event) {
-      capturedEvents.push(event);
-    },
-  });
-});
-
-after(() => {
-  resetTelemetrySink();
-});
+before(() => setTelemetrySink({ write(event) { capturedEvents.push(event); } }));
+after(() => resetTelemetrySink());
 
 function request(path: string, headers?: HeadersInit): Request {
   return new Request(`https://begod.ai${path}`, { headers });
 }
+function variantContext(variant: string) { return { params: Promise.resolve({ variant }) }; }
+function slotContext(slot: string) { return { params: Promise.resolve({ slot }) }; }
 
-function context(variant: string) {
-  return { params: Promise.resolve({ variant }) };
+async function variantResponse(variant: ExperimentVariant, suffix = "", headers?: HeadersInit) {
+  return getVariant(request(`/lab/agent-offers/${variant.toLowerCase()}${suffix}`, headers), variantContext(variant.toLowerCase()));
 }
 
-async function variantHtml(variant: ExperimentVariant): Promise<string> {
-  const response = await getVariant(
-    request(`/lab/agent-offers/${variant.toLowerCase()}`),
-    context(variant.toLowerCase()),
-  );
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html/);
-  assert.match(response.headers.get("cache-control") ?? "", /no-store/);
-  return response.text();
+function bodyOf(html: string): string {
+  return html.match(/<body>\s*([\s\S]*?)\s*<\/body>/)?.[1] ?? "";
 }
 
-test("landing page links to every controlled variant", async () => {
+function scriptJson<T>(html: string, mime: string): T {
+  const escapedMime = mime.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = html.match(new RegExp(`<script type="${escapedMime}"[^>]*>([^<]+)<\\/script>`));
+  assert.ok(match, `Expected ${mime} script payload`);
+  return JSON.parse(match[1]) as T;
+}
+
+test("landing explains and links all controlled variants", async () => {
   const response = await getLanding(request("/lab/agent-offers"));
   const html = await response.text();
-
   assert.equal(response.status, 200);
+  for (const variant of VARIANTS) assert.match(html, new RegExp(`/lab/agent-offers/${variant.toLowerCase()}`));
+  assert.match(html, /same neutral travel-charger article/i);
+});
+
+test("A-E share exactly the same human-visible article body", async () => {
+  const bodies: string[] = [];
   for (const variant of VARIANTS) {
-    assert.match(html, new RegExp(`/lab/agent-offers/${variant.toLowerCase()}`));
-  }
-  assert.match(html, /synthetic test data used for an AI-agent research experiment/i);
-});
-
-test("all five variant routes return their stable canary and shared offer", async () => {
-  for (const variant of VARIANTS) {
-    const html = await variantHtml(variant);
-    assert.match(html, new RegExp(CANARY_IDS[variant]));
-    assert.match(html, new RegExp(SYNTHETIC_OFFER.productName));
-    assert.match(html, new RegExp(SYNTHETIC_OFFER.merchantName));
-    assert.match(html, /€34\.90/);
-    assert.match(html, /Sponsored test offer/);
-    assert.match(html, /No real product is being sold/);
-  }
-});
-
-test("Variant A contains plain visible HTML without structured discovery", async () => {
-  const html = await variantHtml("A");
-
-  assert.match(html, /<h2>Aster 65W USB-C GaN Charger<\/h2>/);
-  assert.doesNotMatch(
-    html,
-    /application\/ld\+json|rel="agent-offers"|\/api\/agent-offers/i,
-  );
-  assert.doesNotMatch(html, /<main|<article|<dl/i);
-});
-
-test("Variant B uses semantic accessible HTML without JSON-LD", async () => {
-  const html = await variantHtml("B");
-
-  assert.match(html, /<main/);
-  assert.match(html, /<article[^>]+aria-labelledby="offer-heading"/);
-  assert.match(html, /<section[^>]+aria-labelledby=/);
-  assert.match(html, /<dl/);
-  assert.doesNotMatch(html, /application\/ld\+json|rel="agent-offers"/i);
-});
-
-test("Variant C contains parseable Schema.org data matching visible content", async () => {
-  const html = await variantHtml("C");
-  const match = html.match(
-    /<script type="application\/ld\+json">([^<]+)<\/script>/,
-  );
-
-  assert.ok(match);
-  const structuredData = JSON.parse(match[1]);
-  assert.equal(structuredData["@context"], "https://schema.org");
-  assert.equal(structuredData["@type"], "Product");
-  assert.equal(structuredData.name, SYNTHETIC_OFFER.productName);
-  assert.equal(structuredData.identifier, CANARY_IDS.C);
-  assert.equal(structuredData.offers["@type"], "Offer");
-  assert.equal(structuredData.offers.price, "34.90");
-  assert.equal(structuredData.offers.priceCurrency, "EUR");
-  assert.equal(structuredData.offers.seller.name, SYNTHETIC_OFFER.merchantName);
-});
-
-test("Variant D links to JSON without the experimental relationship", async () => {
-  const html = await variantHtml("D");
-
-  assert.match(
-    html,
-    /<a[^>]+href="\/api\/agent-offers\/d"[^>]+type="application\/json"/,
-  );
-  assert.doesNotMatch(html, /rel="agent-offers"/);
-});
-
-test("Variant E advertises experimental agent-offer discovery", async () => {
-  const html = await variantHtml("E");
-
-  assert.match(
-    html,
-    /<link rel="agent-offers" type="application\/json" href="\/api\/agent-offers\/e">/,
-  );
-  assert.match(html, /not an established web standard/i);
-});
-
-test("D and E API endpoints return the correct JSON content type and offer", async () => {
-  for (const variant of ["D", "E"] as const) {
-    const response = await getOfferJson(
-      request(`/api/agent-offers/${variant.toLowerCase()}`),
-      context(variant.toLowerCase()),
-    );
-    const body = await response.json();
-
+    const response = await variantResponse(variant);
     assert.equal(response.status, 200);
-    assert.match(
-      response.headers.get("content-type") ?? "",
-      /^application\/json/,
-    );
-    assert.match(response.headers.get("cache-control") ?? "", /no-store/);
-    assert.equal(body.variant, variant);
-    assert.equal(body.canary_id, CANARY_IDS[variant]);
-    assert.equal(body.synthetic, true);
-    assert.equal(body.sponsored, true);
-    assert.equal(body.destination, `/lab/agent-offers/out/${variant.toLowerCase()}`);
+    bodies.push(bodyOf(await response.text()));
   }
-
-  const missing = await getOfferJson(
-    request("/api/agent-offers/c"),
-    context("c"),
-  );
-  assert.equal(missing.status, 404);
+  for (const body of bodies.slice(1)) assert.equal(body, bodies[0]);
+  const visibleText = bodies[0].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const wordCount = visibleText.split(" ").length;
+  assert.ok(wordCount >= 500 && wordCount <= 800, `article word count ${wordCount}`);
+  assert.match(visibleText, /Choosing a USB-C Charger for Travel/);
+  assert.doesNotMatch(visibleText, /\bAster\b|Example Electronics|€34\.90|\bsponsored\b|Agent Offers|\badvertis(?:e|ing|ement)\w*\b|AGENTAD-/i);
 });
 
-test("the well-known endpoint returns valid experimental discovery JSON", async () => {
-  const response = await getDiscovery(
-    request("/.well-known/agent-offers.json"),
-  );
-  const body = await response.json();
-
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^application\/json/);
-  assert.equal(body.experimental, true);
-  assert.match(body.description, /not an established web standard/i);
-  assert.deepEqual(body.offers, [
-    {
-      context: "/lab/agent-offers/e",
-      href: "/api/agent-offers/e",
-      type: "application/json",
-    },
-  ]);
+test("crawler classification never changes a variant document", async () => {
+  const browser = await variantResponse("E", "", { "user-agent": "Mozilla/5.0 Chrome/140" });
+  const crawler = await variantResponse("E", "", { "user-agent": "OAI-SearchBot/1.0" });
+  assert.equal(await browser.text(), await crawler.text());
+  assert.equal(browser.headers.get("link"), crawler.headers.get("link"));
 });
 
-test("outbound actions render a safe confirmation and record telemetry", async () => {
-  const eventCount = capturedEvents.length;
-  const response = await getOutbound(
-    request("/lab/agent-offers/out/a", {
-      "user-agent": "OAI-SearchBot/1.0",
-      referer: "https://begod.ai/lab/agent-offers/a",
-    }),
-    context("a"),
-  );
+test("A is a true client-side commercial control", async () => {
+  const response = await variantResponse("A");
   const html = await response.text();
-  const event = capturedEvents[eventCount];
+  assert.equal(response.headers.get("link"), null);
+  assert.doesNotMatch(html, /application\/agent-|rel="agent-offers"|\/api\/agent-offers\/serve|AGENTAD-|Aster 65W|Example Electronics|34\.90/);
+});
 
+test("B embeds one complete non-rendering sponsored offer and no endpoint pointer", async () => {
+  const response = await variantResponse("B", "?run=inline-001");
+  const html = await response.text();
+  const payload = scriptJson<{
+    sponsored: boolean;
+    synthetic: boolean;
+    offer: {
+      canary_id: string;
+      product: { name: string };
+      price: { amount: number };
+      action: string;
+    };
+  }>(html, "application/agent-offer+json");
+  assert.equal(payload.sponsored, true);
+  assert.equal(payload.synthetic, true);
+  assert.equal(payload.offer.canary_id, CANARY_IDS.B);
+  assert.equal(payload.offer.product.name, SYNTHETIC_OFFER.productName);
+  assert.equal(payload.offer.price.amount, 34.9);
+  assert.equal(payload.offer.action, "/lab/agent-offers/out/b?run=inline-001");
+  assert.doesNotMatch(html, /rel="agent-offers"|application\/agent-ad-manifest|\/api\/agent-offers\/serve/);
+  assert.equal(response.headers.get("link"), null);
+});
+
+test("C exposes only a link to its dynamic offer", async () => {
+  const response = await variantResponse("C", "?run=chatgpt-c-001");
+  const html = await response.text();
+  assert.match(html, /<link rel="agent-offers" type="application\/json" href="\/api\/agent-offers\/serve\/charger-c\?run=chatgpt-c-001">/);
+  assert.doesNotMatch(html, /application\/agent-offer\+json|application\/agent-ad-manifest|AGENTAD-C-2M8Q4|Aster 65W/);
+  assert.equal(response.headers.get("link"), null);
+});
+
+test("D exposes a small manifest without the commercial offer", async () => {
+  const html = await (await variantResponse("D", "?run=claude-d-001")).text();
+  const manifest = scriptJson<{
+    publisher_id: string;
+    page_id: string;
+    slot_id: string;
+    offers_endpoint: string;
+  }>(html, "application/agent-ad-manifest+json");
+  assert.equal(manifest.publisher_id, "pub_begod_lab");
+  assert.equal(manifest.page_id, "travel_charger");
+  assert.equal(manifest.slot_id, "charger_d");
+  assert.equal(manifest.offers_endpoint, "/api/agent-offers/serve/charger-d?run=claude-d-001");
+  assert.doesNotMatch(html, /rel="agent-offers"|AGENTAD-D-5R1X7|Aster 65W|Example Electronics|34\.90/);
+});
+
+test("E aligns link, manifest, and isolated HTTP Link header", async () => {
+  const response = await variantResponse("E", "?run=perplexity-e-001");
+  const html = await response.text();
+  const manifest = scriptJson<{ offers_endpoint: string }>(html, "application/agent-ad-manifest+json");
+  const endpoint = "/api/agent-offers/serve/charger-e?run=perplexity-e-001";
+  assert.match(html, new RegExp(`rel="agent-offers" type="application/json" href="${endpoint.replace(/[?]/g, "\\?")}"`));
+  assert.equal(manifest.offers_endpoint, endpoint);
+  assert.equal(response.headers.get("link"), `<${endpoint}>; rel="agent-offers"; type="application/json"`);
+  assert.doesNotMatch(html, /application\/agent-offer\+json|AGENTAD-E-9P6N2|Aster 65W/);
+  for (const variant of ["A", "B", "C", "D"] as const) assert.equal((await variantResponse(variant)).headers.get("link"), null);
+});
+
+test("C-D-E endpoints select sponsored offers at request time and preserve runs", async () => {
+  for (const [variant, slot] of [["C", "charger-c"], ["D", "charger-d"], ["E", "charger-e"]] as const) {
+    const eventCount = capturedEvents.length;
+    const response = await getOffer(request(`/api/agent-offers/serve/${slot}?run=serve-${variant.toLowerCase()}-001`, { "user-agent": "OAI-SearchBot/1.0" }), slotContext(slot));
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /^application\/json/);
+    assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+    assert.equal(payload.type, "sponsored_offer");
+    assert.equal(payload.sponsored, true);
+    assert.equal(payload.synthetic, true);
+    assert.equal(payload.context.slot_id, `charger_${variant.toLowerCase()}`);
+    assert.equal(payload.offer.canary_id, CANARY_IDS[variant]);
+    assert.equal(payload.offer.action, `/lab/agent-offers/out/${variant.toLowerCase()}?run=serve-${variant.toLowerCase()}-001`);
+    assert.equal(capturedEvents[eventCount].event_type, "offer_endpoint_fetch");
+    assert.equal(capturedEvents[eventCount].test_run_id, `serve-${variant.toLowerCase()}-001`);
+  }
+  assert.equal((await getOffer(request("/api/agent-offers/serve/missing"), slotContext("missing"))).status, 404);
+});
+
+test("the origin-wide commercial discovery route is removed", () => {
+  assert.equal(existsSync("src/app/.well-known/agent-offers.json/route.ts"), false);
+});
+
+test("synthetic outbound actions retain offer attribution while A has no action", async () => {
+  const eventCount = capturedEvents.length;
+  const response = await getOutbound(request("/lab/agent-offers/out/e?run=action-e-001", { "user-agent": "PerplexityBot/1.0" }), variantContext("e"));
+  const html = await response.text();
   assert.equal(response.status, 200);
-  assert.match(response.headers.get("x-robots-tag") ?? "", /noindex/);
-  assert.match(html, /Test offer selected\./);
-  assert.match(html, /No purchase has taken place\./);
-  assert.equal(event.event_type, "outbound_action");
-  assert.equal(event.experiment_variant, "A");
-  assert.equal(event.canary_id, CANARY_IDS.A);
-  assert.equal(event.bot_classification, "openai_searchbot");
+  assert.match(html, /synthetic sponsored offer/i);
+  assert.match(html, /No purchase occurred/i);
+  assert.equal(capturedEvents[eventCount].canary_id, CANARY_IDS.E);
+  assert.equal(capturedEvents[eventCount].test_run_id, "action-e-001");
+  assert.equal((await getOutbound(request("/lab/agent-offers/out/a"), variantContext("a"))).status, 404);
 });
 
-test("telemetry bounds untrusted input, excludes IPs, and drops sensitive query keys", () => {
-  const event = createTelemetryEvent(
-    request("/lab/agent-offers/a?run_id=trial-7&token=do-not-store", {
-      "user-agent": "Perplexity-User/1.0",
-      accept: "text/html",
-    }),
-    { eventType: "page_fetch", variant: "A", canaryId: CANARY_IDS.A },
-  );
-
-  assert.deepEqual(event.query_parameters, { run_id: "trial-7" });
+test("telemetry remains restrained and classifier-only", () => {
+  const event = createTelemetryEvent(request("/lab/agent-offers/a?run=trial-7&token=drop", { "user-agent": "Perplexity-User/1.0" }), { eventType: "page_fetch", variant: "A", canaryId: null });
+  assert.deepEqual(event.query_parameters, { run: "trial-7" });
   assert.equal(event.bot_classification, "perplexity_user_fetcher");
+  assert.equal(event.canary_id, null);
   assert.equal("ip" in event, false);
-  assert.equal("headers" in event, false);
-});
-
-test("agent classifier keeps named crawlers separate from generic bots and browsers", () => {
-  assert.equal(classifyUserAgent("ChatGPT-User/2.0"), "chatgpt_user_fetcher");
-  assert.equal(classifyUserAgent("PerplexityBot/1.0"), "perplexity_bot");
-  assert.equal(classifyUserAgent("Googlebot/2.1"), "googlebot");
   assert.equal(classifyUserAgent("ClaudeBot/1.0"), "anthropic_claude_crawler");
-  assert.equal(classifyUserAgent("ExampleCrawler bot"), "generic_bot");
-  assert.equal(
-    classifyUserAgent("Mozilla/5.0 AppleWebKit/537.36 Chrome/140.0 Safari/537.36"),
-    "normal_browser",
-  );
-  assert.equal(classifyUserAgent("custom-client/1.0"), "unknown");
+  assert.equal(classifyUserAgent("Mozilla/5.0 Chrome/140"), "normal_browser");
 });
