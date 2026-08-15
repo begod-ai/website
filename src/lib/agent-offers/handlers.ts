@@ -3,6 +3,7 @@ import {
   createDiscoveryDocument,
   createOfferDocument,
   parseVariant,
+  sanitizeTestRunId,
 } from "./offer";
 import {
   renderLandingPage,
@@ -16,6 +17,10 @@ const NO_STORE = "private, no-store, max-age=0, must-revalidate";
 
 function requestOrigin(request: Request): string {
   return new URL(request.url).origin;
+}
+
+function requestTestRunId(request: Request): string | null {
+  return sanitizeTestRunId(new URL(request.url).searchParams.get("run"));
 }
 
 function htmlResponse(
@@ -48,12 +53,14 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 export async function handleLandingPage(request: Request): Promise<Response> {
   await recordTelemetry(request, {
-    eventType: "page_fetch",
+    eventType: "landing_fetch",
     variant: null,
     canaryId: null,
   });
 
-  return htmlResponse(renderLandingPage(requestOrigin(request)));
+  return htmlResponse(
+    renderLandingPage(requestOrigin(request), requestTestRunId(request)),
+  );
 }
 
 export async function handleVariantPage(
@@ -75,7 +82,13 @@ export async function handleVariantPage(
     canaryId: CANARY_IDS[variant],
   });
 
-  return htmlResponse(renderVariantPage(variant, requestOrigin(request)));
+  return htmlResponse(
+    renderVariantPage(
+      variant,
+      requestOrigin(request),
+      requestTestRunId(request),
+    ),
+  );
 }
 
 export async function handleOfferJson(
@@ -94,7 +107,7 @@ export async function handleOfferJson(
     canaryId: CANARY_IDS[variant],
   });
 
-  return jsonResponse(createOfferDocument(variant));
+  return jsonResponse(createOfferDocument(variant, requestTestRunId(request)));
 }
 
 export async function handleDiscoveryDocument(
@@ -106,7 +119,7 @@ export async function handleDiscoveryDocument(
     canaryId: CANARY_IDS.E,
   });
 
-  return jsonResponse(createDiscoveryDocument());
+  return jsonResponse(createDiscoveryDocument(requestTestRunId(request)));
 }
 
 export async function handleOutboundAction(
@@ -129,7 +142,11 @@ export async function handleOutboundAction(
   });
 
   return htmlResponse(
-    renderOutboundConfirmation(variant, requestOrigin(request)),
+    renderOutboundConfirmation(
+      variant,
+      requestOrigin(request),
+      requestTestRunId(request),
+    ),
     { noIndex: true },
   );
 }

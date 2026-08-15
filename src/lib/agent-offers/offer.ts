@@ -5,6 +5,8 @@ export const VARIANTS = ["A", "B", "C", "D", "E"] as const;
 
 export type ExperimentVariant = (typeof VARIANTS)[number];
 
+export const TEST_RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
 export const CANARY_IDS: Record<ExperimentVariant, string> = {
   A: "AGENTLAB-A-7F3K9",
   B: "AGENTLAB-B-2M8Q4",
@@ -34,6 +36,23 @@ export function parseVariant(value: string): ExperimentVariant | null {
   return VARIANTS.find((variant) => variant === normalized) ?? null;
 }
 
+export function sanitizeTestRunId(value: string | null): string | null {
+  if (!value || !TEST_RUN_ID_PATTERN.test(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+export function withTestRun(path: string, testRunId: string | null): string {
+  if (!testRunId) {
+    return path;
+  }
+
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}run=${encodeURIComponent(testRunId)}`;
+}
+
 export function variantPath(variant: ExperimentVariant): string {
   return `/lab/agent-offers/${variant.toLowerCase()}`;
 }
@@ -46,7 +65,10 @@ export function jsonEndpointPath(variant: "D" | "E"): string {
   return `/api/agent-offers/${variant.toLowerCase()}`;
 }
 
-export function createOfferDocument(variant: "D" | "E") {
+export function createOfferDocument(
+  variant: "D" | "E",
+  testRunId: string | null = null,
+) {
   return {
     schema_version: EXPERIMENT_SCHEMA_VERSION,
     type: "sponsored_offer",
@@ -69,11 +91,11 @@ export function createOfferDocument(variant: "D" | "E") {
       availability: SYNTHETIC_OFFER.availabilityCode,
       shipping_destination: SYNTHETIC_OFFER.shippingDestination,
     },
-    destination: outboundPath(variant),
+    destination: withTestRun(outboundPath(variant), testRunId),
   };
 }
 
-export function createDiscoveryDocument() {
+export function createDiscoveryDocument(testRunId: string | null = null) {
   return {
     schema_version: EXPERIMENT_SCHEMA_VERSION,
     experimental: true,
@@ -82,8 +104,8 @@ export function createDiscoveryDocument() {
     experiment: "/lab/agent-offers",
     offers: [
       {
-        context: variantPath("E"),
-        href: jsonEndpointPath("E"),
+        context: withTestRun(variantPath("E"), testRunId),
+        href: withTestRun(jsonEndpointPath("E"), testRunId),
         type: "application/json",
       },
     ],

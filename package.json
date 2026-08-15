@@ -7,9 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "tsx --test tests/**/*.test.ts",
+    "agent-lab:test": "tsx --test tests/agent-offers*.test.ts",
+    "agent-lab:migrate": "tsx scripts/migrate-agent-offers.mts",
+    "agent-lab:seed": "tsx scripts/seed-agent-offers.mts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "lucide-react": "^1.26.0",
     "motion": "^12.42.2",
     "next": "16.2.11",

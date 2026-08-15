@@ -1,11 +1,19 @@
 import { classifyUserAgent, type BotClassification } from "./bot-classifier";
-import type { ExperimentVariant } from "./offer";
+import { persistTelemetryEvent } from "./event-store";
+import {
+  sanitizeTestRunId,
+  type ExperimentVariant,
+} from "./offer";
 
-export type TelemetryEventType =
-  | "page_fetch"
-  | "json_endpoint_fetch"
-  | "well_known_fetch"
-  | "outbound_action";
+export const TELEMETRY_EVENT_TYPES = [
+  "landing_fetch",
+  "page_fetch",
+  "json_endpoint_fetch",
+  "well_known_fetch",
+  "outbound_action",
+] as const;
+
+export type TelemetryEventType = (typeof TELEMETRY_EVENT_TYPES)[number];
 
 export interface TelemetryEvent {
   source: "agent_offers_lab";
@@ -20,6 +28,9 @@ export interface TelemetryEvent {
   referrer: string | null;
   accept: string | null;
   query_parameters: Record<string, string | string[]>;
+  test_run_id: string | null;
+  environment: string;
+  deployment_url: string;
 }
 
 export interface TelemetrySink {
@@ -33,7 +44,52 @@ class StructuredLogTelemetrySink implements TelemetrySink {
   }
 }
 
-const defaultSink = new StructuredLogTelemetrySink();
+class PostgresTelemetrySink implements TelemetrySink {
+  async write(event: TelemetryEvent): Promise<void> {
+    await persistTelemetryEvent(event);
+  }
+}
+
+const structuredLogSink = new StructuredLogTelemetrySink();
+const postgresTelemetrySink = new PostgresTelemetrySink();
+
+export interface TelemetryWriteDependencies {
+  structuredLogSink?: TelemetrySink;
+  durableSink?: TelemetrySink;
+  databaseErrorLogger?: (event: TelemetryEvent, error: unknown) => void;
+}
+
+function logDatabaseError(event: TelemetryEvent, error: unknown): void {
+  console.error(
+    JSON.stringify({
+      source: "agent_offers_lab",
+      event_type: "telemetry_database_error",
+      route: event.route,
+      experiment_variant: event.experiment_variant,
+      canary_id: event.canary_id,
+      error_name: error instanceof Error ? error.name : "UnknownError",
+      message: "Durable telemetry write failed; the experiment response continued.",
+    }),
+  );
+}
+
+export async function writeTelemetryEvent(
+  event: TelemetryEvent,
+  dependencies: TelemetryWriteDependencies = {},
+): Promise<void> {
+  const logSink = dependencies.structuredLogSink ?? structuredLogSink;
+  const durableSink = dependencies.durableSink ?? postgresTelemetrySink;
+
+  await logSink.write(event);
+
+  try {
+    await durableSink.write(event);
+  } catch (error) {
+    (dependencies.databaseErrorLogger ?? logDatabaseError)(event, error);
+  }
+}
+
+const defaultSink: TelemetrySink = { write: writeTelemetryEvent };
 let activeSink: TelemetrySink = defaultSink;
 
 const SENSITIVE_QUERY_KEY =
@@ -53,6 +109,14 @@ function safeQueryParameters(url: URL): Record<string, string | string[]> {
   for (const [rawKey, rawValue] of url.searchParams.entries()) {
     const key = rawKey.slice(0, 64);
     if (!key || SENSITIVE_QUERY_KEY.test(key)) {
+      continue;
+    }
+
+    if (key === "run") {
+      const testRunId = sanitizeTestRunId(rawValue);
+      if (testRunId) {
+        values.set(key, [testRunId]);
+      }
       continue;
     }
 
@@ -81,6 +145,11 @@ export function createTelemetryEvent(
 ): TelemetryEvent {
   const url = new URL(request.url);
   const userAgent = boundedHeader(request.headers.get("user-agent"), 1024) ?? "";
+  const environment =
+    boundedHeader(
+      process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
+      32,
+    ) ?? "unknown";
 
   return {
     source: "agent_offers_lab",
@@ -95,6 +164,9 @@ export function createTelemetryEvent(
     referrer: boundedHeader(request.headers.get("referer"), 2048),
     accept: boundedHeader(request.headers.get("accept"), 512),
     query_parameters: safeQueryParameters(url),
+    test_run_id: sanitizeTestRunId(url.searchParams.get("run")),
+    environment,
+    deployment_url: url.origin.slice(0, 512),
   };
 }
 

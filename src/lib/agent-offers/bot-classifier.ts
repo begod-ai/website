@@ -1,16 +1,25 @@
-export type BotClassification =
-  | "openai_searchbot"
-  | "chatgpt_user_fetcher"
-  | "openai_crawler"
-  | "perplexity_bot"
-  | "perplexity_user_fetcher"
-  | "googlebot"
-  | "google_ai_search_crawler"
-  | "bingbot"
-  | "anthropic_claude_crawler"
-  | "generic_bot"
-  | "normal_browser"
-  | "unknown";
+export const BOT_CLASSIFICATIONS = [
+  "openai_searchbot",
+  "chatgpt_user_fetcher",
+  "openai_crawler",
+  "perplexity_bot",
+  "perplexity_user_fetcher",
+  "googlebot",
+  "google_ai_search_crawler",
+  "bingbot",
+  "anthropic_claude_crawler",
+  "generic_bot",
+  "normal_browser",
+  "unknown",
+] as const;
+
+export type BotClassification = (typeof BOT_CLASSIFICATIONS)[number];
+
+export function parseBotClassification(
+  value: string | null,
+): BotClassification | null {
+  return BOT_CLASSIFICATIONS.find((classification) => classification === value) ?? null;
+}
 
 interface ClassificationRule {
   classification: BotClassification;

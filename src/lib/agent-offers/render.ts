@@ -6,6 +6,7 @@ import {
   jsonEndpointPath,
   outboundPath,
   variantPath,
+  withTestRun,
 } from "./offer";
 
 const LAB_PATH = "/lab/agent-offers";
@@ -98,7 +99,7 @@ ${options.body}
 </html>`;
 }
 
-function renderPlainOffer(variant: "A"): string {
+function renderPlainOffer(variant: "A", testRunId: string | null): string {
   const canaryId = CANARY_IDS[variant];
 
   return `<div class="page">
@@ -123,18 +124,24 @@ function renderPlainOffer(variant: "A"): string {
 
     <h3>Research disclosure</h3>
     <p class="disclosure">${escapeHtml(SYNTHETIC_OFFER.disclosure)}</p>
-    <p class="actions"><a class="action" href="${outboundPath(variant)}">Test destination: select synthetic offer</a></p>
+    <p class="actions"><a class="action" href="${withTestRun(outboundPath(variant), testRunId)}">Test destination: select synthetic offer</a></p>
   </div>
 
-  <p class="back"><a href="${LAB_PATH}">View all experiment variants</a></p>
+  <p class="back"><a href="${withTestRun(LAB_PATH, testRunId)}">View all experiment variants</a></p>
 </div>`;
 }
 
-function renderMachineReadableLink(variant: "D" | "E"): string {
-  return `<a class="action secondary" href="${jsonEndpointPath(variant)}" type="application/json">Machine-readable offer data</a>`;
+function renderMachineReadableLink(
+  variant: "D" | "E",
+  testRunId: string | null,
+): string {
+  return `<a class="action secondary" href="${withTestRun(jsonEndpointPath(variant), testRunId)}" type="application/json">Machine-readable offer data</a>`;
 }
 
-function renderSemanticOffer(variant: Exclude<ExperimentVariant, "A">): string {
+function renderSemanticOffer(
+  variant: Exclude<ExperimentVariant, "A">,
+  testRunId: string | null,
+): string {
   const canaryId = CANARY_IDS[variant];
   const hasLinkedJson = variant === "D" || variant === "E";
 
@@ -170,8 +177,8 @@ function renderSemanticOffer(variant: Exclude<ExperimentVariant, "A">): string {
     </section>
 
     <footer class="actions">
-      <a class="action" href="${outboundPath(variant)}">Test destination: select synthetic offer</a>
-      ${hasLinkedJson ? renderMachineReadableLink(variant) : ""}
+      <a class="action" href="${withTestRun(outboundPath(variant), testRunId)}">Test destination: select synthetic offer</a>
+      ${hasLinkedJson ? renderMachineReadableLink(variant, testRunId) : ""}
     </footer>
     ${
       variant === "E"
@@ -181,7 +188,7 @@ function renderSemanticOffer(variant: Exclude<ExperimentVariant, "A">): string {
   </article>
 
   <nav class="back" aria-label="Experiment navigation">
-    <a href="${LAB_PATH}">View all experiment variants</a>
+    <a href="${withTestRun(LAB_PATH, testRunId)}">View all experiment variants</a>
   </nav>
 </main>`;
 }
@@ -217,13 +224,14 @@ export function createSchemaOrgData(variant: "C" | "D" | "E", origin: string) {
 export function renderVariantPage(
   variant: ExperimentVariant,
   origin: string,
+  testRunId: string | null = null,
 ): string {
   const path = variantPath(variant);
   const headParts: string[] = [];
 
   if (variant === "E") {
     headParts.push(
-      `<link rel="agent-offers" type="application/json" href="${jsonEndpointPath("E")}">`,
+      `<link rel="agent-offers" type="application/json" href="${withTestRun(jsonEndpointPath("E"), testRunId)}">`,
     );
   }
 
@@ -239,15 +247,21 @@ export function renderVariantPage(
     origin,
     path,
     title: `Agent Offers Lab — Variant ${variant}`,
-    body: variant === "A" ? renderPlainOffer(variant) : renderSemanticOffer(variant),
+    body:
+      variant === "A"
+        ? renderPlainOffer(variant, testRunId)
+        : renderSemanticOffer(variant, testRunId),
     extraHead: headParts.join("\n  "),
   });
 }
 
-export function renderLandingPage(origin: string): string {
+export function renderLandingPage(
+  origin: string,
+  testRunId: string | null = null,
+): string {
   const items = VARIANTS.map(
     (variant) =>
-      `<li><a href="${variantPath(variant)}"><strong>Variant ${variant}</strong> — ${
+      `<li><a href="${withTestRun(variantPath(variant), testRunId)}"><strong>Variant ${variant}</strong> — ${
         {
           A: "plain visible HTML",
           B: "semantic accessible HTML",
@@ -291,12 +305,13 @@ export function renderLandingPage(origin: string): string {
 export function renderOutboundConfirmation(
   variant: ExperimentVariant,
   origin: string,
+  testRunId: string | null = null,
 ): string {
   const body = `<main class="page">
   <p class="eyebrow">Agent Offers Lab — Variant ${variant}</p>
   <h1>Test offer selected.</h1>
   <p class="lede">This was a synthetic research offer. No purchase has taken place.</p>
-  <p class="back"><a href="${variantPath(variant)}">Return to Variant ${variant}</a></p>
+  <p class="back"><a href="${withTestRun(variantPath(variant), testRunId)}">Return to Variant ${variant}</a></p>
 </main>`;
 
   return renderDocument({
