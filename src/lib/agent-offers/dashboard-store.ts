@@ -3,12 +3,14 @@ import type { DatabaseClient } from "./database";
 import { getDatabaseClient } from "./database";
 import {
   aggregateDashboardEvents,
+  VARIANT_MECHANISMS,
   type AgentBreakdownRow,
   type AgentVariantMatrixRow,
   type DashboardData,
   type DashboardFilters,
   type DashboardFunnel,
   type DashboardSummary,
+  type EndpointDiscoveryMatrixRow,
   type StoredAgentOfferEvent,
   type TestRunBreakdownRow,
   type VariantBreakdownRow,
@@ -17,6 +19,7 @@ import {
   parseVariant,
   sanitizeTestRunId,
   VARIANTS,
+  type DynamicOfferVariant,
   type ExperimentVariant,
 } from "./offer";
 import {
@@ -47,16 +50,14 @@ export const DASHBOARD_QUERY_SQL = `
   summary_row AS (
     SELECT
       COUNT(*)::int AS total_requests,
-      COUNT(*) FILTER (
-        WHERE agent_class NOT IN ('normal_browser', 'unknown')
-      )::int AS ai_bot_requests,
       COUNT(*) FILTER (WHERE event_type = 'page_fetch')::int AS page_fetches,
       COUNT(*) FILTER (
-        WHERE event_type = 'json_endpoint_fetch'
-      )::int AS json_endpoint_fetches,
+        WHERE event_type = 'page_fetch'
+          AND agent_class NOT IN ('normal_browser', 'unknown')
+      )::int AS ai_bot_page_fetches,
       COUNT(*) FILTER (
-        WHERE event_type = 'well_known_fetch'
-      )::int AS well_known_fetches,
+        WHERE event_type = 'offer_endpoint_fetch'
+      )::int AS offer_endpoint_fetches,
       COUNT(*) FILTER (
         WHERE event_type = 'outbound_action'
       )::int AS outbound_actions,
@@ -70,6 +71,12 @@ export const DASHBOARD_QUERY_SQL = `
     WHERE event_type = 'page_fetch' AND variant IS NOT NULL
     GROUP BY agent_class, variant
   ),
+  endpoint_matrix_rows AS (
+    SELECT agent_class, variant, COUNT(*)::int AS event_count
+    FROM filtered
+    WHERE event_type = 'offer_endpoint_fetch' AND variant IN ('C', 'D', 'E')
+    GROUP BY agent_class, variant
+  ),
   variant_rows AS (
     SELECT
       variant,
@@ -79,8 +86,8 @@ export const DASHBOARD_QUERY_SQL = `
           AND agent_class NOT IN ('normal_browser', 'unknown')
       )::int AS ai_bot_fetches,
       COUNT(*) FILTER (
-        WHERE event_type = 'json_endpoint_fetch'
-      )::int AS json_endpoint_fetches,
+        WHERE event_type = 'offer_endpoint_fetch'
+      )::int AS offer_endpoint_fetches,
       COUNT(*) FILTER (
         WHERE event_type = 'outbound_action'
       )::int AS outbound_actions
@@ -99,11 +106,8 @@ export const DASHBOARD_QUERY_SQL = `
         ARRAY[]::text[]
       ) AS variants_fetched,
       COUNT(*) FILTER (
-        WHERE event_type = 'json_endpoint_fetch'
-      )::int AS json_endpoint_fetches,
-      COUNT(*) FILTER (
-        WHERE event_type = 'well_known_fetch'
-      )::int AS well_known_fetches,
+        WHERE event_type = 'offer_endpoint_fetch'
+      )::int AS offer_endpoint_fetches,
       COUNT(*) FILTER (
         WHERE event_type = 'outbound_action'
       )::int AS outbound_actions,
@@ -129,8 +133,7 @@ export const DASHBOARD_QUERY_SQL = `
         ARRAY[]::text[]
       ) AS variants_touched,
       COUNT(*)::int AS event_count,
-      BOOL_OR(event_type = 'json_endpoint_fetch') AS json_discovery,
-      BOOL_OR(event_type = 'well_known_fetch') AS well_known_discovery,
+      BOOL_OR(event_type = 'offer_endpoint_fetch') AS endpoint_discovery,
       BOOL_OR(event_type = 'outbound_action') AS outbound_action
     FROM filtered
     WHERE test_run_id IS NOT NULL
@@ -142,10 +145,9 @@ export const DASHBOARD_QUERY_SQL = `
     (
       SELECT jsonb_build_object(
         'totalRequests', total_requests,
-        'aiBotRequests', ai_bot_requests,
         'pageFetches', page_fetches,
-        'jsonEndpointFetches', json_endpoint_fetches,
-        'wellKnownFetches', well_known_fetches,
+        'aiBotPageFetches', ai_bot_page_fetches,
+        'offerEndpointFetches', offer_endpoint_fetches,
         'outboundActions', outbound_actions,
         'uniqueAgentClasses', unique_agent_classes,
         'controlledTestRuns', controlled_test_runs
@@ -165,10 +167,20 @@ export const DASHBOARD_QUERY_SQL = `
     COALESCE((
       SELECT jsonb_agg(
         jsonb_build_object(
+          'agentClass', agent_class,
+          'variant', variant,
+          'count', event_count
+        ) ORDER BY agent_class, variant
+      )
+      FROM endpoint_matrix_rows
+    ), '[]'::jsonb) AS endpoint_matrix,
+    COALESCE((
+      SELECT jsonb_agg(
+        jsonb_build_object(
           'variant', variant,
           'pageFetches', page_fetches,
           'aiBotFetches', ai_bot_fetches,
-          'jsonEndpointFetches', json_endpoint_fetches,
+          'offerEndpointFetches', offer_endpoint_fetches,
           'outboundActions', outbound_actions
         ) ORDER BY variant
       )
@@ -181,8 +193,7 @@ export const DASHBOARD_QUERY_SQL = `
           'totalEvents', total_events,
           'pageFetches', page_fetches,
           'variantsFetched', variants_fetched,
-          'jsonEndpointFetches', json_endpoint_fetches,
-          'wellKnownFetches', well_known_fetches,
+          'offerEndpointFetches', offer_endpoint_fetches,
           'outboundActions', outbound_actions,
           'mostRecentRequest', most_recent_request
         ) ORDER BY total_events DESC, agent_class
@@ -215,8 +226,7 @@ export const DASHBOARD_QUERY_SQL = `
           'agentClasses', agent_classes,
           'variantsTouched', variants_touched,
           'eventCount', event_count,
-          'jsonDiscovery', json_discovery,
-          'wellKnownDiscovery', well_known_discovery,
+          'endpointDiscovery', endpoint_discovery,
           'outboundAction', outbound_action
         ) ORDER BY last_event DESC
       )
@@ -227,6 +237,11 @@ export const DASHBOARD_QUERY_SQL = `
 interface DashboardQueryRow extends Record<string, unknown> {
   summary: DashboardSummary;
   matrix: Array<{
+    agentClass: string;
+    variant: string;
+    count: number;
+  }>;
+  endpoint_matrix: Array<{
     agentClass: string;
     variant: string;
     count: number;
@@ -250,10 +265,9 @@ function normalizeSummary(value: unknown): DashboardSummary {
   const summary = (value ?? {}) as Partial<DashboardSummary>;
   return {
     totalRequests: numberValue(summary.totalRequests),
-    aiBotRequests: numberValue(summary.aiBotRequests),
     pageFetches: numberValue(summary.pageFetches),
-    jsonEndpointFetches: numberValue(summary.jsonEndpointFetches),
-    wellKnownFetches: numberValue(summary.wellKnownFetches),
+    aiBotPageFetches: numberValue(summary.aiBotPageFetches),
+    offerEndpointFetches: numberValue(summary.offerEndpointFetches),
     outboundActions: numberValue(summary.outboundActions),
     uniqueAgentClasses: numberValue(summary.uniqueAgentClasses),
     controlledTestRuns: numberValue(summary.controlledTestRuns),
@@ -289,6 +303,24 @@ function normalizeDashboardRow(row: DashboardQueryRow): DashboardData {
     matrixByAgent.set(agentClass, existing);
   }
 
+  const endpointMatrixByAgent = new Map<string, EndpointDiscoveryMatrixRow>();
+  const endpointMatrixColumnTotals: Record<DynamicOfferVariant, number> = { C: 0, D: 0, E: 0 };
+  for (const item of row.endpoint_matrix ?? []) {
+    const agentClass = parseBotClassification(item.agentClass);
+    const variant = parseVariant(item.variant);
+    if (!agentClass || (variant !== "C" && variant !== "D" && variant !== "E")) continue;
+    const existing = endpointMatrixByAgent.get(agentClass) ?? {
+      agentClass,
+      counts: { C: 0, D: 0, E: 0 },
+      total: 0,
+    };
+    const count = numberValue(item.count);
+    existing.counts[variant] += count;
+    existing.total += count;
+    endpointMatrixColumnTotals[variant] += count;
+    endpointMatrixByAgent.set(agentClass, existing);
+  }
+
   const summary = normalizeSummary(row.summary);
   const rawVariants = new Map(
     (row.variant_breakdown ?? []).flatMap((item) => {
@@ -300,9 +332,13 @@ function normalizeDashboardRow(row: DashboardQueryRow): DashboardData {
     const item = rawVariants.get(variant);
     return {
       variant,
+      mechanism: VARIANT_MECHANISMS[variant],
       pageFetches: numberValue(item?.pageFetches),
       aiBotFetches: numberValue(item?.aiBotFetches),
-      jsonEndpointFetches: numberValue(item?.jsonEndpointFetches),
+      offerEndpointFetches:
+        variant === "A" || variant === "B"
+          ? null
+          : numberValue(item?.offerEndpointFetches),
       outboundActions: numberValue(item?.outboundActions),
     };
   });
@@ -321,8 +357,7 @@ function normalizeDashboardRow(row: DashboardQueryRow): DashboardData {
           const variant = parseVariant(String(value));
           return variant ? [variant] : [];
         }),
-        jsonEndpointFetches: numberValue(item.jsonEndpointFetches),
-        wellKnownFetches: numberValue(item.wellKnownFetches),
+        offerEndpointFetches: numberValue(item.offerEndpointFetches),
         outboundActions: numberValue(item.outboundActions),
         mostRecentRequest: String(item.mostRecentRequest),
       },
@@ -373,8 +408,7 @@ function normalizeDashboardRow(row: DashboardQueryRow): DashboardData {
           return variant ? [variant] : [];
         }),
         eventCount: numberValue(item.eventCount),
-        jsonDiscovery: Boolean(item.jsonDiscovery),
-        wellKnownDiscovery: Boolean(item.wellKnownDiscovery),
+        endpointDiscovery: Boolean(item.endpointDiscovery),
         outboundAction: Boolean(item.outboundAction),
       },
     ];
@@ -382,8 +416,7 @@ function normalizeDashboardRow(row: DashboardQueryRow): DashboardData {
 
   const funnel: DashboardFunnel = {
     pageFetches: summary.pageFetches,
-    jsonEndpointFetches: summary.jsonEndpointFetches,
-    wellKnownFetches: summary.wellKnownFetches,
+    offerEndpointFetches: summary.offerEndpointFetches,
     outboundActions: summary.outboundActions,
   };
 
@@ -393,6 +426,10 @@ function normalizeDashboardRow(row: DashboardQueryRow): DashboardData {
       (a, b) => b.total - a.total || a.agentClass.localeCompare(b.agentClass),
     ),
     matrixColumnTotals,
+    endpointMatrix: Array.from(endpointMatrixByAgent.values()).sort(
+      (a, b) => b.total - a.total || a.agentClass.localeCompare(b.agentClass),
+    ),
+    endpointMatrixColumnTotals,
     funnel,
     variantBreakdown,
     agentBreakdown,

@@ -158,14 +158,12 @@ function renderFilters(filters: DashboardFilters): string {
 
 function renderMetrics(data: DashboardData): string {
   const metrics = [
-    ["Total experiment requests", data.summary.totalRequests],
-    ["AI / bot requests", data.summary.aiBotRequests],
     ["Page fetches", data.summary.pageFetches],
-    ["JSON endpoint fetches", data.summary.jsonEndpointFetches],
-    ["Well-known fetches", data.summary.wellKnownFetches],
+    ["Known AI / bot page fetches", data.summary.aiBotPageFetches],
+    ["Dynamic offer endpoint requests", data.summary.offerEndpointFetches],
     ["Outbound actions", data.summary.outboundActions],
-    ["Agent classes observed", data.summary.uniqueAgentClasses],
     ["Controlled test runs", data.summary.controlledTestRuns],
+    ["Agent classes observed", data.summary.uniqueAgentClasses],
   ];
 
   return `<section class="metric-grid" aria-label="Summary metrics">${metrics
@@ -174,6 +172,15 @@ function renderMetrics(data: DashboardData): string {
         `<div class="metric"><strong>${value}</strong><span>${escapeHtml(String(label))}</span></div>`,
     )
     .join("")}</section>`;
+}
+
+function renderEndpointMatrix(data: DashboardData): string {
+  const endpointVariants = ["C", "D", "E"] as const;
+  const rows = data.endpointMatrix.length
+    ? data.endpointMatrix.map((row) => `<tr><td>${escapeHtml(agentClassLabel(row.agentClass))}</td>${endpointVariants.map((variant) => `<td class="numeric">${row.counts[variant]}</td>`).join("")}<td class="numeric"><strong>${row.total}</strong></td></tr>`).join("")
+    : '<tr><td class="empty" colspan="5">No dynamic offer endpoint requests match these filters.</td></tr>';
+  const total = endpointVariants.reduce((sum, variant) => sum + data.endpointMatrixColumnTotals[variant], 0);
+  return `<section class="section" aria-labelledby="endpoint-matrix-heading"><div class="section-head"><div><h2 id="endpoint-matrix-heading">Endpoint-discovery matrix</h2><p class="muted">Requests to the dynamically served C, D, and E offer resources.</p></div></div><div class="table-wrap"><table><thead><tr><th scope="col">Agent class</th>${endpointVariants.map((variant) => `<th class="numeric" scope="col">${variant} endpoint</th>`).join("")}<th class="numeric" scope="col">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">Column total</th>${endpointVariants.map((variant) => `<td class="numeric"><strong>${data.endpointMatrixColumnTotals[variant]}</strong></td>`).join("")}<td class="numeric"><strong>${total}</strong></td></tr></tfoot></table></div></section>`;
 }
 
 function renderMatrix(data: DashboardData): string {
@@ -205,10 +212,9 @@ function renderMatrix(data: DashboardData): string {
 
 function renderFunnel(data: DashboardData, filters: DashboardFilters): string {
   const steps = [
-    ["Experiment page fetch", data.funnel.pageFetches],
-    ["JSON endpoint fetch", data.funnel.jsonEndpointFetches],
-    [".well-known fetch", data.funnel.wellKnownFetches],
-    ["Outbound action", data.funnel.outboundActions],
+    ["Publisher page fetched", data.funnel.pageFetches],
+    ["Dynamic offer endpoint fetched", data.funnel.offerEndpointFetches],
+    ["Synthetic action followed", data.funnel.outboundActions],
   ] as const;
   const maximum = Math.max(...steps.map(([, count]) => count), 1);
   const interpretation = filters.testRunId
@@ -231,12 +237,12 @@ function renderFunnel(data: DashboardData, filters: DashboardFilters): string {
 
 function renderVariantBreakdown(data: DashboardData): string {
   return `<section class="section" aria-labelledby="variant-heading">
-    <h2 id="variant-heading">Variant breakdown</h2>
+    <h2 id="variant-heading">Mechanism comparison</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th scope="col">Variant</th><th class="numeric" scope="col">Page fetches</th><th class="numeric" scope="col">AI / bot fetches</th><th class="numeric" scope="col">JSON fetches</th><th class="numeric" scope="col">Outbound actions</th></tr></thead>
+      <thead><tr><th scope="col">Variant</th><th scope="col">Mechanism</th><th class="numeric" scope="col">Page fetches</th><th class="numeric" scope="col">AI / bot page fetches</th><th class="numeric" scope="col">Offer endpoint fetches</th><th class="numeric" scope="col">Outbound actions</th></tr></thead>
       <tbody>${data.variantBreakdown
         .map(
-          (row) => `<tr><th scope="row">${row.variant}</th><td class="numeric">${row.pageFetches}</td><td class="numeric">${row.aiBotFetches}</td><td class="numeric">${row.jsonEndpointFetches}</td><td class="numeric">${row.outboundActions}</td></tr>`,
+          (row) => `<tr><th scope="row">${row.variant}</th><td>${escapeHtml(row.mechanism)}</td><td class="numeric">${row.pageFetches}</td><td class="numeric">${row.aiBotFetches}</td><td class="numeric">${row.offerEndpointFetches ?? "N/A"}</td><td class="numeric">${row.outboundActions}</td></tr>`,
         )
         .join("")}</tbody>
     </table></div>
@@ -251,17 +257,17 @@ function renderAgentBreakdown(data: DashboardData): string {
             <td>${escapeHtml(agentClassLabel(row.agentClass))}</td>
             <td class="numeric">${row.totalEvents}</td><td class="numeric">${row.pageFetches}</td>
             <td>${row.variantsFetched.join(", ") || "—"}</td>
-            <td class="numeric">${row.jsonEndpointFetches}</td><td class="numeric">${row.wellKnownFetches}</td><td class="numeric">${row.outboundActions}</td>
+            <td class="numeric">${row.offerEndpointFetches}</td><td class="numeric">${row.outboundActions}</td>
             <td><time datetime="${escapeHtml(row.mostRecentRequest)}">${escapeHtml(formatUtc(row.mostRecentRequest))}</time></td>
           </tr>`,
         )
         .join("")
-    : '<tr><td class="empty" colspan="8">No agent activity matches these filters.</td></tr>';
+    : '<tr><td class="empty" colspan="7">No agent activity matches these filters.</td></tr>';
 
   return `<section class="section" aria-labelledby="agent-heading">
     <h2 id="agent-heading">Agent breakdown</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th scope="col">Agent class</th><th class="numeric" scope="col">Events</th><th class="numeric" scope="col">Page fetches</th><th scope="col">Variants</th><th class="numeric" scope="col">JSON</th><th class="numeric" scope="col">Well-known</th><th class="numeric" scope="col">Outbound</th><th scope="col">Most recent (UTC)</th></tr></thead>
+      <thead><tr><th scope="col">Agent class</th><th class="numeric" scope="col">Events</th><th class="numeric" scope="col">Page fetches</th><th scope="col">Variants</th><th class="numeric" scope="col">Offer endpoints</th><th class="numeric" scope="col">Outbound</th><th scope="col">Most recent (UTC)</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   </section>`;
@@ -280,8 +286,7 @@ function renderTestRuns(data: DashboardData): string {
         <td>${escapeHtml(formatUtc(run.firstEvent))}</td><td>${escapeHtml(formatUtc(run.lastEvent))}</td>
         <td>${run.agentClasses.map(agentClassLabel).map(escapeHtml).join(", ")}</td>
         <td>${run.variantsTouched.join(", ") || "—"}</td><td class="numeric">${run.eventCount}</td>
-        <td class="${run.jsonDiscovery ? "yes" : "no"}">${run.jsonDiscovery ? "Yes" : "No"}</td>
-        <td class="${run.wellKnownDiscovery ? "yes" : "no"}">${run.wellKnownDiscovery ? "Yes" : "No"}</td>
+        <td class="${run.endpointDiscovery ? "yes" : "no"}">${run.endpointDiscovery ? "Yes" : "No"}</td>
         <td class="${run.outboundAction ? "yes" : "no"}">${run.outboundAction ? "Yes" : "No"}</td>
       </tr>`;
     })
@@ -290,7 +295,7 @@ function renderTestRuns(data: DashboardData): string {
   return `<section class="section" aria-labelledby="runs-heading">
     <h2 id="runs-heading">Controlled test runs</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th scope="col">Run ID</th><th scope="col">First event (UTC)</th><th scope="col">Last event (UTC)</th><th scope="col">Agent classifications</th><th scope="col">Variants</th><th class="numeric" scope="col">Events</th><th scope="col">JSON?</th><th scope="col">Well-known?</th><th scope="col">Outbound?</th></tr></thead>
+      <thead><tr><th scope="col">Run ID</th><th scope="col">First event (UTC)</th><th scope="col">Last event (UTC)</th><th scope="col">Agent classifications</th><th scope="col">Variants</th><th class="numeric" scope="col">Events</th><th scope="col">Endpoint?</th><th scope="col">Outbound?</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   </section>`;
@@ -325,8 +330,8 @@ function renderRecentEvents(data: DashboardData): string {
 }
 
 function renderDashboard(data: DashboardData, filters: DashboardFilters): string {
-  return `${renderMetrics(data)}${renderMatrix(data)}${renderFunnel(data, filters)}${renderVariantBreakdown(data)}${renderAgentBreakdown(data)}${renderTestRuns(data)}${renderRecentEvents(data)}
-    <section class="section panel"><h2>Interpretation warning</h2><p>Events are HTTP requests, not unique agents or unique users. A page fetch does not prove an offer appeared in an AI answer; an API fetch does not prove it influenced ranking; and an outbound action may still be machine-generated. A controlled <code>test_run_id</code> supports stronger correlation, but does not create visitor identity.</p></section>`;
+  return `${renderMetrics(data)}${renderMatrix(data)}${renderEndpointMatrix(data)}${renderFunnel(data, filters)}${renderVariantBreakdown(data)}${renderAgentBreakdown(data)}${renderTestRuns(data)}${renderRecentEvents(data)}
+    <section class="section panel"><h2>Server observation versus external outcome</h2><p>Events are HTTP requests, not unique agents, users, or ad impressions. The server can observe a publisher-page request, dynamic endpoint request, or action request. It cannot know from those events alone whether a model parsed Variant B’s inline payload, mentioned or recommended an offer, disclosed sponsorship, showed it to a user, or used it for ranking. Even an outbound action may be machine-generated. A controlled <code>test_run_id</code> supports stronger correlation without creating visitor identity.</p></section>`;
 }
 
 export function renderResultsPage(
@@ -358,7 +363,7 @@ export function renderResultsPage(
     <header>
       <p class="eyebrow">begod.ai research telemetry</p>
       <h1>Agent Offers Lab — Results</h1>
-      <p class="lede">Durable server-side request evidence for machine-readable offer discovery.</p>
+      <p class="lede">Durable server-side request evidence for invisible machine-readable sponsored-offer discovery.</p>
       <p><strong>${escapeHtml(rangeLabel(filters))}</strong>${filters.startAt ? ` · since ${escapeHtml(formatUtc(filters.startAt))}` : ""}</p>
       <p class="timezone">All timestamps are displayed in UTC.</p>
     </header>
