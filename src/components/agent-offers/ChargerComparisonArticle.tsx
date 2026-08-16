@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 const promotedOfferUrl =
   "https://www.amazon.ie/UGREEN-Charger-Fast-Compact-Travel/dp/B0DG8XZN39";
 
-const offscreenStyle: CSSProperties = {
+export const awvmOffscreenTextStyle: CSSProperties = {
   position: "absolute",
   left: "-10000px",
   top: "auto",
@@ -12,7 +12,7 @@ const offscreenStyle: CSSProperties = {
   overflow: "hidden",
 };
 
-const clippedStyle: CSSProperties = {
+export const awvmClippedTextStyle: CSSProperties = {
   position: "absolute",
   width: "1px",
   height: "1px",
@@ -164,7 +164,13 @@ export function PromotedChargerOffer({
   technique: "offscreen" | "clipped";
 }) {
   return (
-    <span style={technique === "offscreen" ? offscreenStyle : clippedStyle}>
+    <span
+      style={
+        technique === "offscreen"
+          ? awvmOffscreenTextStyle
+          : awvmClippedTextStyle
+      }
+    >
       PROMOTED RETAIL OFFER
       <br />
       UGREEN 65W GaN 3-Port USB-C Charger
